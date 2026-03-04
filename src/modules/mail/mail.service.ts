@@ -98,7 +98,7 @@ export class MailService {
         // Add headers to help with deliverability
         headers: {
           'X-Priority': '3',
-          'X-Mailer': 'WECURE System',
+          'X-Mailer': 'Bfs System',
         },
       };
 
@@ -144,8 +144,8 @@ export class MailService {
     try {
       await this.sendEmail(
         email,
-        'Congratulations! Your WeCure Profile is Verified',
-        `Dear Dr. ${name},\n\nWe are pleased to inform you that your profile on WeCure has been verified. You can now start setting up your availability and receiving appointments.\n\nWelcome to our community!`,
+        'Congratulations! Your Bfs Profile is Verified',
+        `Dear Dr. ${name},\n\nWe are pleased to inform you that your profile on Bfs has been verified. You can now start setting up your availability and receiving appointments.\n\nWelcome to our community!`,
       );
     } catch (err) {
       this.logger.error(
@@ -156,7 +156,7 @@ export class MailService {
 
   async sendDoctorRejectionEmail(email: string, name: string, reason?: string) {
     try {
-      let message = `Dear Dr. ${name},\n\nThank you for your interest in WeCure. After reviewing your documents, we regret to inform you that we cannot verify your profile at this time.`;
+      let message = `Dear Dr. ${name},\n\nThank you for your interest in Bfs. After reviewing your documents, we regret to inform you that we cannot verify your profile at this time.`;
       if (reason) {
         message += `\n\nReason: ${reason}`;
       }
@@ -164,7 +164,7 @@ export class MailService {
 
       await this.sendEmail(
         email,
-        'Update on your WeCure Registration',
+        'Update on your Bfs Registration',
         message,
       );
     } catch (err) {
@@ -180,7 +180,7 @@ export class MailService {
     reason?: string,
   ) {
     try {
-      let message = `Dear Dr. ${name},\n\nWe are writing to inform you that your WeCure profile has been suspended. During this time, your profile will not be visible to patients, and your upcoming appointments have been cancelled.`;
+      let message = `Dear Dr. ${name},\n\nWe are writing to inform you that your Bfs profile has been suspended. During this time, your profile will not be visible to patients, and your upcoming appointments have been cancelled.`;
       if (reason) {
         message += `\n\nReason: ${reason}`;
       }
@@ -188,7 +188,7 @@ export class MailService {
 
       await this.sendEmail(
         email,
-        'Your WeCure Profile has been Suspended',
+        'Your Bfs Profile has been Suspended',
         message,
       );
     } catch (err) {
@@ -202,8 +202,8 @@ export class MailService {
     try {
       await this.sendEmail(
         email,
-        'Your WeCure Profile Suspension has been Lifted',
-        `Dear Dr. ${name},\n\nWe are happy to inform you that the suspension on your WeCure profile has been lifted. You can now resume your practice on our platform.\n\nPlease remember to update your availability.`,
+        'Your Bfs Profile Suspension has been Lifted',
+        `Dear Dr. ${name},\n\nWe are happy to inform you that the suspension on your Bfs profile has been lifted. You can now resume your practice on our platform.\n\nPlease remember to update your availability.`,
       );
     } catch (err) {
       this.logger.error(
@@ -216,7 +216,7 @@ export class MailService {
     try {
       const message = `
         Dear ${name},<br><br>
-        Your administrator account has been created on WECURE.<br><br>
+        Your administrator account has been created on Bfs.<br><br>
         <strong>Login Credentials:</strong><br>
         Email: ${email}<br>
         Password: ${password}<br><br>

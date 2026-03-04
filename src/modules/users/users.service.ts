@@ -2,25 +2,35 @@ import {
   Injectable,
   ConflictException,
   BadRequestException,
+  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from './schemas/user.schema';
+import { Profile, ProfileDocument } from './schemas/profile.schema';
 import { Role } from 'src/common/enum/role.enum';
 import { UserStatus } from 'src/common/enum/user.status.enum';
 import { CreateAdminDto } from './dto/create-admin.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+
+const SALT_ROUNDS = 10;
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectModel(User.name)
     public readonly userModel: Model<UserDocument>,
+    @InjectModel(Profile.name)
+    private readonly profileModel: Model<ProfileDocument>,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  // ─── User Creation ──────────────────────────────────────────────────────────
 
   async createUser(data: {
     name: string;
@@ -37,7 +47,7 @@ export class UsersService {
     const exists = await this.userModel.findOne({ email: data.email });
     if (exists) throw new ConflictException('Email already in use');
 
-    const hashedPassword = await bcrypt.hash(data.password, 12);
+    const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
 
     const dataToSave: any = {
       ...data,
@@ -48,9 +58,16 @@ export class UsersService {
       dataToSave.isEmailVerified = true;
     }
 
-    return this.userModel.create({
-      ...dataToSave,
+    const user = await this.userModel.create({ ...dataToSave });
+
+    // Create a linked profile document
+    await this.profileModel.create({
+      userId: user._id,
+      name: data.name,
+      phone: data.phone ?? undefined,
     });
+
+    return user;
   }
 
   async createAdmin(data: CreateAdminDto) {
@@ -59,29 +76,153 @@ export class UsersService {
       role: Role.ADMIN,
     });
 
-    // Emit event to send credentials via email
     this.eventEmitter.emit('admin.created', {
       email: data.email,
       name: data.name,
-      password: data.password, // Original password before hashing in createUser
+      password: data.password,
     });
 
     return admin;
   }
 
+  // ─── Finders ────────────────────────────────────────────────────────────────
+
   async findByEmail(email: string) {
-    const user = await this.userModel.findOne({ email }).lean();
-    return user;
+    return this.userModel.findOne({ email }).lean();
   }
 
   async findById(id: string) {
-    const user = await this.userModel.findById(id).select('-password').lean();
-    return user;
+    return this.userModel.findById(id).select('-password').lean();
   }
+
+  async findAll(query: any) {
+    const page = parseInt(query.page) || 1;
+    const limit = parseInt(query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const filter: any = {};
+    if (query.role) filter.role = query.role;
+    if (query.status) filter.status = query.status;
+    if (query.search) {
+      filter.$or = [
+        { name: { $regex: query.search, $options: 'i' } },
+        { email: { $regex: query.search, $options: 'i' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      this.userModel
+        .find(filter)
+        .skip(skip)
+        .limit(limit)
+        .select('-password')
+        .lean(),
+      this.userModel.countDocuments(filter),
+    ]);
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  // ─── Profile ─────────────────────────────────────────────────────────────────
+
+  async getProfile(userId: string) {
+    const [user, profile] = await Promise.all([
+      this.userModel
+        .findById(userId)
+        .select(
+          '-password -refreshToken -emailVerificationOtp -emailVerificationOtpExpires -passwordResetOtp -passwordResetOtpExpires',
+        )
+        .lean(),
+      this.profileModel.findOne({ userId: new Types.ObjectId(userId) }).lean(),
+    ]);
+
+    if (!user) throw new NotFoundException('User not found');
+
+    return { ...user, profile: profile ?? null };
+  }
+
+  async getProfileByUserId(userId: string) {
+    return this.profileModel
+      .findOne({ userId: new Types.ObjectId(userId) })
+      .lean();
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    // Update user document fields
+    const userUpdates: any = {};
+    if (dto.name) userUpdates.name = dto.name;
+    if (dto.profileImage) userUpdates.profileImage = dto.profileImage;
+
+    if (Object.keys(userUpdates).length) {
+      await this.userModel.findByIdAndUpdate(userId, userUpdates);
+    }
+
+    // Update profile document fields
+    const profileUpdates: any = {};
+    if (dto.name) profileUpdates.name = dto.name;
+    if (dto.bio !== undefined) profileUpdates.bio = dto.bio;
+    if (dto.phone) profileUpdates.phone = dto.phone;
+    if (dto.socialLinks !== undefined)
+      profileUpdates.socialLinks = dto.socialLinks;
+    if (dto.avatarUrl) profileUpdates.avatarUrl = dto.avatarUrl;
+
+    const profile = await this.profileModel
+      .findOneAndUpdate(
+        { userId: new Types.ObjectId(userId) },
+        { $set: profileUpdates },
+        { returnDocument: 'after', upsert: true },
+      )
+      .lean();
+
+    const user = await this.userModel
+      .findById(userId)
+      .select('-password -refreshToken')
+      .lean();
+
+    return { ...user, profile };
+  }
+
+  async updateAvatar(userId: string, avatarUrl: string) {
+    const profile = await this.profileModel
+      .findOneAndUpdate(
+        { userId: new Types.ObjectId(userId) },
+        { $set: { avatarUrl } },
+        { returnDocument: 'after', upsert: true },
+      )
+      .lean();
+
+    return profile;
+  }
+
+  // ─── Password ────────────────────────────────────────────────────────────────
+
+  async changePassword(
+    userId: string,
+    data: { oldPassword: string; newPassword: string },
+  ) {
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const match = await bcrypt.compare(data.oldPassword, user.password);
+    if (!match) throw new BadRequestException('Current password is incorrect');
+
+    const hashedPassword = await bcrypt.hash(data.newPassword, SALT_ROUNDS);
+    await this.userModel.findByIdAndUpdate(userId, {
+      password: hashedPassword,
+    });
+  }
+
+  // ─── Token & OTP ─────────────────────────────────────────────────────────────
 
   async updateRefreshToken(userId: string, refreshToken: string | null) {
     const hashedRefreshToken = refreshToken
-      ? await bcrypt.hash(refreshToken, 11)
+      ? await bcrypt.hash(refreshToken, SALT_ROUNDS)
       : null;
     await this.userModel.findByIdAndUpdate(userId, {
       refreshToken: hashedRefreshToken,
@@ -172,7 +313,7 @@ export class UsersService {
   }
 
   async updatePassword(email: string, newPassword: string) {
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
     await this.userModel.findOneAndUpdate(
       { email },
       {
@@ -183,93 +324,23 @@ export class UsersService {
     );
   }
 
-  async getPendingRegistration(email: string) {
-    return this.userModel
-      .findOne({
-        email,
-        isEmailVerified: false,
-      })
-      .lean();
-  }
+  // ─── Admin Actions ────────────────────────────────────────────────────────────
 
-  async updateProfile(
-    userId: string,
-    data: {
-      name?: string;
-      phone?: string;
-      dateOfBirth?: string;
-      profileImage?: string;
-      allergies?: string[];
-      bloodGroup?: string;
-    },
-  ) {
-    const updates: any = {};
-    if (data.name) updates.name = data.name;
-
-    if (data.profileImage) updates.profileImage = data.profileImage;
-
-    if (data.bloodGroup) updates.bloodGroup = data.bloodGroup;
-
-    const updatedUser = await this.userModel
-      .findByIdAndUpdate(userId, updates, { new: true })
-      .select('-password')
-      .lean();
-
-    return updatedUser;
-  }
-
-  async changePassword(userId: string, data: any) {
+  async deleteUser(userId: string) {
     const user = await this.userModel.findById(userId);
-    if (!user) {
-      throw new ConflictException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
 
-    const match = await bcrypt.compare(data.oldPassword, user.password);
-    if (!match) {
-      throw new ConflictException('Invalid old password');
-    }
-
-    const hashedPassword = await bcrypt.hash(data.newPassword, 12);
-    await this.userModel.findByIdAndUpdate(userId, {
-      password: hashedPassword,
-    });
-  }
-
-  async deleteAccount(userId: string) {
-    await this.userModel.findByIdAndDelete(userId);
-  }
-
-  async findAll(query: any) {
-    const page = parseInt(query.page) || 1;
-    const limit = parseInt(query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    const filter: any = {};
-    if (query.role) filter.role = query.role;
-    if (query.search) {
-      filter.$or = [
-        { name: { $regex: query.search, $options: 'i' } },
-        { email: { $regex: query.search, $options: 'i' } },
-      ];
-    }
-
-    const [data, total] = await Promise.all([
-      this.userModel
-        .find(filter)
-        .skip(skip)
-        .limit(limit)
-        .select('-password')
-        .lean(),
-      this.userModel.countDocuments(filter),
+    await Promise.all([
+      this.userModel.findByIdAndDelete(userId),
+      this.profileModel.findOneAndDelete({
+        userId: new Types.ObjectId(userId),
+      }),
     ]);
+  }
 
-    return {
-      data: data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+  /** @deprecated use deleteUser */
+  async deleteAccount(userId: string) {
+    return this.deleteUser(userId);
   }
 
   async toggleUserStatus(userId: string, requestingUserId?: string) {
@@ -278,30 +349,35 @@ export class UsersService {
     }
 
     const user = await this.userModel.findById(userId);
-    if (!user) {
-      throw new ConflictException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
 
     const newStatus =
       user.status === UserStatus.BLOCKED
         ? UserStatus.ACTIVE
         : UserStatus.BLOCKED;
+
     return this.userModel.findByIdAndUpdate(
       userId,
       { status: newStatus },
-      { new: true },
+      { returnDocument: 'after' },
     );
   }
 
   async changeRole(userId: string, role: string) {
-    return this.userModel.findByIdAndUpdate(userId, { role }, { new: true });
+    return this.userModel.findByIdAndUpdate(
+      userId,
+      { role },
+      { returnDocument: 'after' },
+    );
   }
+
+  // ─── FCM Tokens ──────────────────────────────────────────────────────────────
 
   async registerFcmToken(userId: string, token: string) {
     return this.userModel.findByIdAndUpdate(
       userId,
       { $addToSet: { fcmTokens: token } },
-      { new: true },
+      { returnDocument: 'after' },
     );
   }
 
@@ -309,7 +385,13 @@ export class UsersService {
     return this.userModel.findByIdAndUpdate(
       userId,
       { $pull: { fcmTokens: token } },
-      { new: true },
+      { returnDocument: 'after' },
     );
+  }
+
+  // ─── Legacy ──────────
+
+  async getPendingRegistration(email: string) {
+    return this.userModel.findOne({ email, isEmailVerified: false }).lean();
   }
 }

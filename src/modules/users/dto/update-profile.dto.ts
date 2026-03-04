@@ -2,9 +2,25 @@ import {
   IsOptional,
   IsString,
   IsNotEmpty,
-  IsISO8601,
-  IsEnum,
+  IsUrl,
+  ValidateNested,
+  IsPhoneNumber,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class SocialLinksDto {
+  @IsOptional()
+  @IsUrl()
+  facebook?: string;
+
+  @IsOptional()
+  @IsUrl()
+  instagram?: string;
+
+  @IsOptional()
+  @IsUrl()
+  twitter?: string;
+}
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -14,15 +30,20 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  phone?: string;
-
-  @IsOptional()
-  @IsISO8601()
-  dateOfBirth?: string;
+  bio?: string;
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
+  phone?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SocialLinksDto)
+  socialLinks?: SocialLinksDto;
+
+  // Set internally by controller after S3 upload — not from client body
+  avatarUrl?: string;
+
+  // Legacy field: kept for backward-compat with existing updateProfile method
   profileImage?: string;
 }

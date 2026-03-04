@@ -3,7 +3,6 @@ import {
   IsEnum,
   IsNotEmpty,
   MinLength,
-  ValidateIf,
 } from 'class-validator';
 import { Role } from 'src/common/enum/role.enum';
 

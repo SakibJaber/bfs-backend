@@ -11,20 +11,21 @@ import {
   Param,
   UseInterceptors,
   UploadedFile,
+  HttpStatus,
+  HttpException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from 'src/common/guards/roles.guard';
+import { Roles } from 'src/common/decorators/roles.decorator';
+import { Role } from 'src/common/enum/role.enum';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { CreateAdminDto } from './dto/create-admin.dto';
-import { RolesGuard } from 'src/common/guards/roles.guard';
-import { Roles } from 'src/common/decorators/roles.decorator';
-import { Role } from 'src/common/enum/role.enum';
 import { UPLOAD_FOLDERS } from 'src/common/constants/constants';
 import { UploadsService } from 'src/modules/uploads/uploads.service';
-
 
 @Controller('users')
 export class UsersController {
@@ -33,29 +34,38 @@ export class UsersController {
     private readonly uploadService: UploadsService,
   ) {}
 
+  // ─── Own Profile ─────────────────────────────────────────────────────────────
+
+  /**
+   * GET /users/me
+   * Returns the authenticated user's full profile (user + linked profile document).
+   */
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  async getProfile(@Req() req) {
+  async getMe(@Req() req) {
     try {
-      const user = await this.usersService.findById(req.user.userId);
+      const data = await this.usersService.getProfile(req.user.userId);
       return {
         success: true,
         statusCode: 200,
-        message: 'User profile fetched successfully',
-        data: user,
+        message: 'Profile fetched successfully',
+        data,
       };
     } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to fetch profile',
-        data: null,
-      };
+      throw new HttpException(
+        { success: false, message: error.message || 'Failed to fetch profile' },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
+  /**
+   * PATCH /users/update-profile
+   * Updates name, bio, phone, socialLinks.
+   * Optionally accepts a multipart `image` file which is uploaded to S3.
+   */
   @UseGuards(JwtAuthGuard)
-  @Patch('profile')
+  @Patch('update-profile')
   @UseInterceptors(FileInterceptor('image'))
   async updateProfile(
     @Req() req,
@@ -64,35 +74,76 @@ export class UsersController {
   ) {
     try {
       if (image) {
-        const imageUrl = await this.uploadService.uploadBuffer(
+        dto.avatarUrl = await this.uploadService.uploadImage(
           image.buffer,
           image.mimetype,
-          UPLOAD_FOLDERS.USER_PROFILES,
           image.originalname,
-          req.user.userId,
+          UPLOAD_FOLDERS.USER_PROFILES,
         );
-        dto.profileImage = imageUrl;
+        dto.profileImage = dto.avatarUrl; // keep legacy field in sync
       }
 
-      const user = await this.usersService.updateProfile(req.user.userId, dto);
+      const data = await this.usersService.updateProfile(req.user.userId, dto);
       return {
         success: true,
         statusCode: 200,
         message: 'Profile updated successfully',
-        data: user,
+        data,
       };
     } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to update profile',
-        data: null,
-      };
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to update profile',
+        },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
+  /**
+   * PATCH /users/update-avatar
+   * Dedicated avatar upload endpoint (multipart `avatar` field).
+   */
   @UseGuards(JwtAuthGuard)
-  @Post('change-password')
+  @Patch('update-avatar')
+  @UseInterceptors(FileInterceptor('avatar'))
+  async updateAvatar(@Req() req, @UploadedFile() file: Express.Multer.File) {
+    try {
+      if (!file) {
+        throw new HttpException('No file provided', HttpStatus.BAD_REQUEST);
+      }
+
+      const avatarUrl = await this.uploadService.uploadImage(
+        file.buffer,
+        file.mimetype,
+        file.originalname,
+        UPLOAD_FOLDERS.USER_PROFILES,
+      );
+
+      const profile = await this.usersService.updateAvatar(
+        req.user.userId,
+        avatarUrl,
+      );
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Avatar updated successfully',
+        data: { avatarUrl, profile },
+      };
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: error.message || 'Failed to update avatar' },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * PATCH /users/change-password
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('change-password')
   async changePassword(@Req() req, @Body() dto: ChangePasswordDto) {
     try {
       await this.usersService.changePassword(req.user.userId, dto);
@@ -103,60 +154,22 @@ export class UsersController {
         data: null,
       };
     } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to change password',
-        data: null,
-      };
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to change password',
+        },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
+  // ─── Admin-only ───────────────────────────────────────────────────────────────
 
-
-  @UseGuards(JwtAuthGuard)
-  @Delete('profile')
-  async deleteAccount(@Req() req) {
-    try {
-      await this.usersService.deleteAccount(req.user.userId);
-      return {
-        success: true,
-        statusCode: 200,
-        message: 'Account deleted successfully',
-        data: null,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to delete account',
-        data: null,
-      };
-    }
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPER_ADMIN)
-  @Post('admin')
-  async createAdmin(@Body() dto: CreateAdminDto) {
-    try {
-      const admin = await this.usersService.createAdmin(dto);
-      return {
-        success: true,
-        statusCode: 201,
-        message: 'Admin created successfully',
-        data: admin,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to create admin',
-        data: null,
-      };
-    }
-  }
-
+  /**
+   * GET /users
+   * Admin: paginated list of all users. Supports ?page, ?limit, ?role, ?search
+   */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Get()
@@ -171,45 +184,65 @@ export class UsersController {
         meta,
       };
     } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to fetch users',
-        data: null,
-      };
+      throw new HttpException(
+        { success: false, message: error.message || 'Failed to fetch users' },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
+  /**
+   * GET /users/:id
+   * Admin: get any user by ID.
+   */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Get(':id')
   async findOne(@Param('id') id: string) {
     try {
-      const user = await this.usersService.findById(id);
-      if (!user) {
-        return {
-          success: false,
-          statusCode: 404,
-          message: 'User not found',
-          data: null,
-        };
-      }
+      const data = await this.usersService.getProfile(id);
       return {
         success: true,
         statusCode: 200,
         message: 'User fetched successfully',
-        data: user,
+        data,
       };
     } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to fetch user',
-        data: null,
-      };
+      throw new HttpException(
+        { success: false, message: error.message || 'User not found' },
+        error.status || HttpStatus.NOT_FOUND,
+      );
     }
   }
 
+  /**
+   * DELETE /users/:id
+   * Admin: permanently deletes user + profile.
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Delete(':id')
+  async deleteUser(@Param('id') id: string) {
+    try {
+      await this.usersService.deleteUser(id);
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'User deleted successfully',
+        data: null,
+      };
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: error.message || 'Failed to delete user' },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * PATCH /users/:id/toggle-status
+   * Admin: block / unblock a user.
+   */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Patch(':id/toggle-status')
@@ -219,25 +252,27 @@ export class UsersController {
         id,
         req.user.userId,
       );
-      if (!user) {
-        throw new Error('User not found after update');
-      }
       return {
         success: true,
         statusCode: 200,
-        message: `User ${user.status === 'BLOCKED' ? 'blocked' : 'unblocked'} successfully`,
+        message: `User ${user!.status === 'BLOCKED' ? 'blocked' : 'unblocked'} successfully`,
         data: user,
       };
     } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to toggle user status',
-        data: null,
-      };
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to toggle user status',
+        },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
+  /**
+   * PATCH /users/:id/role
+   * Admin: change a user's role.
+   */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Patch(':id/role')
@@ -247,18 +282,42 @@ export class UsersController {
       return {
         success: true,
         statusCode: 200,
-        message: 'User role updated successfully',
+        message: 'User role updated',
         data: user,
       };
     } catch (error) {
-      return {
-        success: false,
-        statusCode: error.status || 400,
-        message: error.message || 'Failed to update user role',
-        data: null,
-      };
+      throw new HttpException(
+        { success: false, message: error.message || 'Failed to update role' },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
     }
   }
+
+  /**
+   * POST /users/admin
+   * Super-admin: create a new admin account.
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
+  @Post('admin')
+  async createAdmin(@Body() dto: CreateAdminDto) {
+    try {
+      const admin = await this.usersService.createAdmin(dto);
+      return {
+        success: true,
+        statusCode: 201,
+        message: 'Admin created successfully',
+        data: admin,
+      };
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: error.message || 'Failed to create admin' },
+        error.status || HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  // ─── FCM Tokens ───────────────────────────────────────────────────────────────
 
   @UseGuards(JwtAuthGuard)
   @Patch('fcm-token')
@@ -267,7 +326,7 @@ export class UsersController {
     return {
       success: true,
       statusCode: 200,
-      message: 'FCM token registered successfully',
+      message: 'FCM token registered',
       data: null,
     };
   }
@@ -279,7 +338,7 @@ export class UsersController {
     return {
       success: true,
       statusCode: 200,
-      message: 'FCM token removed successfully',
+      message: 'FCM token removed',
       data: null,
     };
   }
