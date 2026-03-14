@@ -3,6 +3,8 @@
 /node_modules
 /build
 
+/API_TESTING_GUIDE.md
+
 # Logs
 logs
 *.log

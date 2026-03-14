@@ -1,8 +1,8 @@
 {
   "name": "bfs-backend",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "description": "Backend for BFS",
+  "author": "Jaber",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
