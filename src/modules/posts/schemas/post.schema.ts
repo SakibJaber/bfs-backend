@@ -8,6 +8,9 @@ export class Post {
   @Prop({ type: Types.ObjectId, ref: 'User', index: true })
   userId: Types.ObjectId;
 
+  @Prop({ trim: true })
+  title: string;
+
   @Prop() caption: string;
 
   @Prop({ index: true })

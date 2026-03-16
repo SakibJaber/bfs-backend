@@ -22,7 +22,7 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { SearchPostsDto } from './dto/search-posts.dto';
 import { UploadsService } from '../uploads/uploads.service';
-import { Role } from 'src/common/enum/role.enum';
+import { Role } from '../../common/enum/role.enum';
 
 export interface AuthUser {
   _id: string;
@@ -58,6 +58,7 @@ export class PostsService {
         [
           {
             userId: new Types.ObjectId(user._id),
+            title: dto.title,
             caption: dto.caption,
             location: dto.location,
             price: dto.price,
@@ -104,7 +105,9 @@ export class PostsService {
         userId: user._id,
       });
 
-      return post;
+      // Fetch the full post with all related data to return
+      const fullPost = await this.findOne(postId.toString());
+      return fullPost as any;
     } catch (err) {
       await session.abortTransaction();
       throw err;
@@ -313,10 +316,42 @@ export class PostsService {
       {},
     );
 
-    const data = posts.map((p) => ({
-      ...p,
-      media: mediaByPost[(p._id as Types.ObjectId).toString()] ?? [],
-    }));
+    // Attach boat entities map by iteration
+    const [boatInfos, boatEngines, boatAdditionals] = await Promise.all([
+      this.boatInfoModel
+        .find({ postId: { $in: postIds } })
+        .lean()
+        .exec(),
+      this.boatEngineModel
+        .find({ postId: { $in: postIds } })
+        .lean()
+        .exec(),
+      this.boatAdditionalModel
+        .find({ postId: { $in: postIds } })
+        .lean()
+        .exec(),
+    ]);
+
+    const byPostId = (items: any[]) =>
+      items.reduce((acc, item) => {
+        acc[item.postId.toString()] = item;
+        return acc;
+      }, {});
+
+    const boatInfoMap = byPostId(boatInfos);
+    const boatEngineMap = byPostId(boatEngines);
+    const boatAdditionalMap = byPostId(boatAdditionals);
+
+    const data = posts.map((p) => {
+      const idStr = (p._id as Types.ObjectId).toString();
+      return {
+        ...p,
+        boatInfo: boatInfoMap[idStr] ?? null,
+        boatEngine: boatEngineMap[idStr] ?? null,
+        boatAdditional: boatAdditionalMap[idStr] ?? null,
+        media: mediaByPost[idStr] ?? [],
+      };
+    });
 
     return { data, total, page, limit };
   }

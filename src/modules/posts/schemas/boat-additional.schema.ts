@@ -17,6 +17,9 @@ export class BoatAdditional {
   @Prop({ trim: true })
   manufacturer: string;
 
+  @Prop({ trim: true })
+  engineModel: string;
+
   /** Bridge clearance in feet */
   @Prop({ min: 0 })
   bridgeClearance: number;

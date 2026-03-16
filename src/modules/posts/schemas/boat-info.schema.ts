@@ -21,15 +21,24 @@ export class BoatInfo {
   category: string;
 
   @Prop({ trim: true })
+  model: string;
+
+  @Prop({ trim: true })
   hullMaterial: string;
 
   /** Length in feet */
   @Prop({ min: 0, index: true })
   length: number;
 
+  @Prop({ min: 0 })
+  peopleCapacity: number;
+
   /** Manufacturing year */
   @Prop({ min: 1900, max: 2100, index: true })
   year: number;
+
+  @Prop({ trim: true })
+  description: string;
 }
 
 export const BoatInfoSchema = SchemaFactory.createForClass(BoatInfo);

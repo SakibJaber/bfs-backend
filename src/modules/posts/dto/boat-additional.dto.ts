@@ -6,6 +6,10 @@ export class BoatAdditionalDto {
   manufacturer?: string;
 
   @IsOptional()
+  @IsString()
+  engineModel?: string;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   bridgeClearance?: number;

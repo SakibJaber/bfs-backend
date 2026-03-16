@@ -18,6 +18,10 @@ export class BoatInfoDto {
 
   @IsOptional()
   @IsString()
+  model?: string;
+
+  @IsOptional()
+  @IsString()
   hullMaterial?: string;
 
   @IsOptional()
@@ -30,4 +34,13 @@ export class BoatInfoDto {
   @Min(1900)
   @Max(2100)
   year?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  peopleCapacity?: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
 }

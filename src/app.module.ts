@@ -14,6 +14,7 @@ import { UploadsModule } from 'src/modules/uploads/uploads.module';
 import { MailModule } from 'src/modules/mail/mail.module';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { UsersModule } from 'src/modules/users/users.module';
+import { DomainModule } from 'src/modules/domain.module';
 
 const logger = new Logger('Database');
 
@@ -72,6 +73,7 @@ const logger = new Logger('Database');
     MailModule,
     UsersModule,
     AuthModule,
+    DomainModule
   ],
   controllers: [AppController],
   providers: [AppService],

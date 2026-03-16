@@ -14,6 +14,10 @@ import { BoatAdditionalDto } from './boat-additional.dto';
 export class CreatePostDto {
   @IsOptional()
   @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
   caption?: string;
 
   @IsOptional()
