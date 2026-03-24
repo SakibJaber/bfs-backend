@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Comment, CommentDocument } from './schemas/comment.schema';
+import {
+  Comment,
+  CommentSchema,
+  CommentDocument,
+} from './schemas/comment.schema';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { Profile, ProfileDocument } from '../users/schemas/profile.schema';
+import { Post, PostDocument } from '../posts/schemas/post.schema';
 
 export interface AuthUser {
   userId: string;
@@ -16,6 +21,8 @@ export class CommentsService {
     private readonly commentModel: Model<CommentDocument>,
     @InjectModel(Profile.name)
     private readonly profileModel: Model<ProfileDocument>,
+    @InjectModel(Post.name)
+    private readonly postModel: Model<PostDocument>,
   ) {}
 
   async create(
@@ -35,6 +42,12 @@ export class CommentsService {
     });
 
     const saved = await created.save();
+
+    await this.postModel.updateOne(
+      { _id: new Types.ObjectId(dto.postId) },
+      { $inc: { commentsCount: 1 } },
+    );
+
     const populated = await saved.populate('userId', 'name');
 
     // Attach profile avatar
@@ -121,10 +134,20 @@ export class CommentsService {
   }
 
   async remove(id: string, user: AuthUser) {
-    // Basic implementation, you might want to check ownership
-    return this.commentModel.deleteOne({
+    const comment = await this.commentModel.findOne({
       _id: new Types.ObjectId(id),
       userId: new Types.ObjectId(user.userId),
     });
+
+    if (comment) {
+      const res = await this.commentModel.deleteOne({ _id: comment._id });
+      await this.postModel.updateOne(
+        { _id: comment.postId },
+        { $inc: { commentsCount: -1 } },
+      );
+      return res;
+    }
+
+    return { deletedCount: 0 };
   }
 }

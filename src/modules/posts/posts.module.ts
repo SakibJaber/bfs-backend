@@ -16,6 +16,7 @@ import {
   BoatAdditional,
   BoatAdditionalSchema,
 } from './schemas/boat-additional.schema';
+import { LikesModule } from '../likes/likes.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import {
       { name: Saved.name, schema: SavedSchema },
       { name: Profile.name, schema: ProfileSchema },
     ]),
+    LikesModule,
   ],
   controllers: [PostsController],
   providers: [PostsService],

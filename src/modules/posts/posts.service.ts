@@ -33,6 +33,14 @@ export interface AuthUser {
   role: Role;
 }
 
+type FeedMeta = {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+};
+type FeedResult = { data: unknown[]; meta: FeedMeta };
+
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger(PostsService.name);
@@ -69,6 +77,12 @@ export class PostsService {
     let postId: Types.ObjectId;
 
     try {
+      // 0. Fetch user profile for denormalization
+      const profile = await this.profileModel
+        .findOne({ userId: user.userId })
+        .lean()
+        .exec();
+
       // 1. Create the base post
       const [post] = await this.postModel.create(
         [
@@ -78,6 +92,8 @@ export class PostsService {
             caption: dto.caption,
             location: dto.location,
             price: dto.price,
+            userName: (user as any).name || '',
+            userAvatarUrl: profile?.avatarUrl || '',
           },
         ],
         { session },
@@ -112,6 +128,21 @@ export class PostsService {
         (post as any).boatAdditionalId = boatAdditional._id as Types.ObjectId;
       }
 
+      // 5. Update displayTitle after related entities are created
+      const [boatInfo, boatAdditional] = await Promise.all([
+        this.boatInfoModel.findOne({ postId }).session(session).lean().exec(),
+        this.boatAdditionalModel
+          .findOne({ postId })
+          .session(session)
+          .lean()
+          .exec(),
+      ]);
+
+      (post as any).displayTitle = this.buildDisplayTitle(
+        boatInfo,
+        boatAdditional,
+      );
+
       await post.save({ session });
       await session.commitTransaction();
     } catch (err) {
@@ -121,7 +152,7 @@ export class PostsService {
       session.endSession();
     }
 
-    // 5. Upload media if files are provided (Outside transaction)
+    // Upload media if files are provided (outside transaction)
     if (files && files.length > 0) {
       try {
         await this.uploadMedia(postId.toString(), files, user);
@@ -129,8 +160,6 @@ export class PostsService {
         this.logger.error(
           `Post ${postId} created but media upload failed: ${mediaErr.message}`,
         );
-        // We still return the post even if media fails, or you can throw if critical.
-        // For now, let's let it pass but log the error.
       }
     }
 
@@ -140,7 +169,7 @@ export class PostsService {
       userId: user.userId,
     });
 
-    // Fetch the full post with all related data to return
+    // Return full post with all related data
     const fullPost = await this.findOne(postId.toString());
     return fullPost as any;
   }
@@ -218,7 +247,62 @@ export class PostsService {
     return { message: 'Post deleted successfully' };
   }
 
+  // ─── SHARE POST ──────────
+
+  async share(postId: string): Promise<{ shareCount: number }> {
+    const post = (await this.findActivePostOrThrow(postId)) as any;
+    post.shareCount = (post.shareCount || 0) + 1;
+    await post.save();
+    return { shareCount: post.shareCount };
+  }
+
+  // ─── SYNC COUNTS ──────────
+
+  async syncCounts(): Promise<{ message: string }> {
+    const posts = await this.postModel
+      .find({ status: { $ne: 'deleted' } })
+      .exec();
+
+    for (const post of posts) {
+      const [likesCount, commentsCount, boatInfo, boatAdditional, profile] =
+        await Promise.all([
+          this.likeModel.countDocuments({ postId: post._id }).exec(),
+          this.commentModel.countDocuments({ postId: post._id }).exec(),
+          this.boatInfoModel.findOne({ postId: post._id }).lean().exec(),
+          this.boatAdditionalModel.findOne({ postId: post._id }).lean().exec(),
+          post.userId
+            ? this.profileModel.findOne({ userId: post.userId }).lean().exec()
+            : Promise.resolve(null),
+        ]);
+
+      const displayTitle = this.buildDisplayTitle(boatInfo, boatAdditional);
+
+      const user = (await this.postModel.db
+        .model('User')
+        .findById(post.userId)
+        .select('name')
+        .lean()
+        .exec()) as any;
+
+      await this.postModel.updateOne(
+        { _id: post._id },
+        {
+          $set: {
+            likesCount,
+            commentsCount,
+            displayTitle,
+            userName: user?.name || '',
+            userAvatarUrl: profile?.avatarUrl || '',
+          },
+        },
+      );
+    }
+
+    return { message: `Synced counts for ${posts.length} posts.` };
+  }
+
   // ─── GET ONE ──────────
+
   async findOne(
     postId: string,
     user?: AuthUser,
@@ -240,8 +324,6 @@ export class PostsService {
       boatEngine,
       boatAdditional,
       media,
-      likesCount,
-      commentsCount,
       profile,
       isLiked,
       isSaved,
@@ -254,8 +336,6 @@ export class PostsService {
         .sort({ order: 1 })
         .lean()
         .exec(),
-      this.likeModel.countDocuments({ postId: post._id }).exec(),
-      this.commentModel.countDocuments({ postId: post._id }).exec(),
       post.userId
         ? this.profileModel
             .findOne({ userId: (post.userId as any)._id })
@@ -280,8 +360,7 @@ export class PostsService {
         : Promise.resolve(false),
     ]);
 
-    const displayTitle =
-      `${boatInfo?.year ?? ''} ${boatAdditional?.manufacturer ?? ''} ${boatInfo?.model ?? ''}`.trim();
+    const displayTitle = this.buildDisplayTitle(boatInfo, boatAdditional);
 
     const userObj = post.userId
       ? { ...(post.userId as any), avatarUrl: profile?.avatarUrl }
@@ -295,9 +374,9 @@ export class PostsService {
       boatEngine,
       boatAdditional,
       media,
-      likesCount,
-      commentsCount,
-      shareCount: 0, // Placeholder
+      likesCount: (post as any).likesCount || 0,
+      commentsCount: (post as any).commentsCount || 0,
+      shareCount: (post as any).shareCount || 0,
       isLiked,
       isSaved,
     };
@@ -305,180 +384,24 @@ export class PostsService {
 
   // ─── FEED (SIMPLIFIED) ──────────
 
-  async getFeed(
-    query: SearchPostsDto,
-    user?: AuthUser,
-  ): Promise<{
-    data: unknown[];
-    meta: { total: number; page: number; limit: number; totalPages: number };
-  }> {
-    const { page = 1, limit = 15 } = query;
-    const skip = (page - 1) * limit;
+  async getFeed(query: SearchPostsDto, user?: AuthUser): Promise<FeedResult> {
+    const postFilter: Record<string, any> = { status: { $ne: 'deleted' } };
+    return this.queryFeedPosts(postFilter, query, user);
+  }
 
+  // ─── MY POSTS ──────────
+
+  async getMyPosts(query: SearchPostsDto, user: AuthUser): Promise<FeedResult> {
     const postFilter: Record<string, any> = {
+      userId: new Types.ObjectId(user.userId),
       status: { $ne: 'deleted' },
     };
-
-    const [posts, total] = await Promise.all([
-      this.postModel
-        .find(postFilter)
-        .select('_id userId location price createdAt title displayTitle')
-        .populate('userId', 'name av')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean()
-        .exec(),
-      this.postModel.countDocuments(postFilter).exec(),
-    ]);
-
-    const postIds = posts.map((p) => p._id);
-
-    // Fetch only necessary fields for displayTitle if not already computed or if we want to be sure
-    // Actually, in the enhanced findAll I added displayTitle, but let's make sure it's computed here too
-    // if it's not stored in the DB (it's not).
-
-    const [
-      boatInfos,
-      boatAdditionals,
-      mediaItems,
-      likesCounts,
-      commentsCounts,
-      userLikes,
-      userSaves,
-      profiles,
-    ] = await Promise.all([
-      this.boatInfoModel
-        .find({ postId: { $in: postIds } })
-        .select('postId year model')
-        .lean()
-        .exec(),
-      this.boatAdditionalModel
-        .find({ postId: { $in: postIds } })
-        .select('postId manufacturer')
-        .lean()
-        .exec(),
-      this.postMediaModel
-        .find({ postId: { $in: postIds } })
-        .select('postId url type order')
-        .sort({ order: 1 })
-        .lean()
-        .exec(),
-      this.likeModel.aggregate([
-        { $match: { postId: { $in: postIds } } },
-        { $group: { _id: '$postId', count: { $sum: 1 } } },
-      ]),
-      this.commentModel.aggregate([
-        { $match: { postId: { $in: postIds } } },
-        { $group: { _id: '$postId', count: { $sum: 1 } } },
-      ]),
-      user
-        ? this.likeModel
-            .find({
-              postId: { $in: postIds },
-              userId: new Types.ObjectId(user.userId),
-            })
-            .select('postId')
-            .lean()
-            .exec()
-        : Promise.resolve([]),
-      user
-        ? this.savedModel
-            .find({
-              postId: { $in: postIds },
-              userId: new Types.ObjectId(user.userId),
-            })
-            .select('postId')
-            .lean()
-            .exec()
-        : Promise.resolve([]),
-      this.profileModel
-        .find({
-          userId: {
-            $in: posts.map((p) => (p.userId as any)?._id).filter(Boolean),
-          },
-        })
-        .select('userId avatarUrl')
-        .lean()
-        .exec(),
-    ]);
-
-    const boatInfoMap = boatInfos.reduce((acc, curr) => {
-      acc[curr.postId.toString()] = curr;
-      return acc;
-    }, {});
-
-    const boatAdditionalMap = boatAdditionals.reduce((acc, curr) => {
-      acc[curr.postId.toString()] = curr;
-      return acc;
-    }, {});
-
-    const mediaByPost = mediaItems.reduce<Record<string, any[]>>((acc, m) => {
-      const key = (m.postId as Types.ObjectId).toString();
-      if (!acc[key]) acc[key] = [];
-      acc[key].push({ url: m.url, type: m.type, order: m.order });
-      return acc;
-    }, {});
-
-    const likesCountMap = likesCounts.reduce((acc, curr) => {
-      acc[curr._id.toString()] = curr.count;
-      return acc;
-    }, {});
-
-    const commentsCountMap = commentsCounts.reduce((acc, curr) => {
-      acc[curr._id.toString()] = curr.count;
-      return acc;
-    }, {});
-
-    const likedPostIds = new Set(userLikes.map((ul) => ul.postId.toString()));
-    const savedPostIds = new Set(userSaves.map((us) => us.postId.toString()));
-    const profileMap = profiles.reduce((acc, curr) => {
-      acc[curr.userId.toString()] = curr;
-      return acc;
-    }, {});
-
-    const data = posts.map((p) => {
-      const idStr = p._id.toString();
-      const bInfo = boatInfoMap[idStr];
-      const bAdd = boatAdditionalMap[idStr];
-
-      const displayTitle =
-        `${bInfo?.year ?? ''} ${bAdd?.manufacturer ?? ''} ${bInfo?.model ?? ''}`.trim();
-
-      const u = p.userId as any;
-      const userObj = u
-        ? { ...u, avatarUrl: profileMap[u._id?.toString()]?.avatarUrl }
-        : null;
-
-      return {
-        _id: p._id,
-        user: userObj,
-        location: p.location,
-        price: p.price,
-        displayTitle,
-        media: mediaByPost[idStr] ?? [],
-        likesCount: likesCountMap[idStr] ?? 0,
-        commentsCount: commentsCountMap[idStr] ?? 0,
-        shareCount: 0, // Placeholder
-        isLiked: likedPostIds.has(idStr),
-        isSaved: savedPostIds.has(idStr),
-        createdAt: (p as any).createdAt,
-      };
-    });
-
-    const totalPages = Math.ceil(total / limit);
-    return { data, meta: { total, page, limit, totalPages } };
+    return this.queryFeedPosts(postFilter, query, user);
   }
 
   // ─── SEARCH + PAGINATION ──────────
 
-  async findAll(
-    query: SearchPostsDto,
-    user?: AuthUser,
-  ): Promise<{
-    data: unknown[];
-    meta: { total: number; page: number; limit: number; totalPages: number };
-  }> {
+  async findAll(query: SearchPostsDto, user?: AuthUser): Promise<FeedResult> {
     const {
       location,
       minPrice,
@@ -499,8 +422,6 @@ export class PostsService {
       page = 1,
       limit = 15,
     } = query;
-
-    const skip = (page - 1) * limit;
 
     // ── Build filters for related models ──────────
     let filteredPostIds: Types.ObjectId[] | null = null;
@@ -590,9 +511,7 @@ export class PostsService {
     }
 
     // ── Build Post filter ──────────
-    const postFilter: Record<string, any> = {
-      status: { $ne: 'deleted' },
-    };
+    const postFilter: Record<string, any> = { status: { $ne: 'deleted' } };
 
     if (location) {
       postFilter.location = { $regex: location, $options: 'i' };
@@ -608,153 +527,7 @@ export class PostsService {
       postFilter._id = { $in: filteredPostIds };
     }
 
-    const [posts, total] = await Promise.all([
-      this.postModel
-        .find(postFilter)
-        .populate('userId', 'name')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean()
-        .exec(),
-      this.postModel.countDocuments(postFilter).exec(),
-    ]);
-
-    const totalPages = Math.ceil(total / limit);
-
-    // Attach media covers
-    const postIds = posts.map((p) => p._id);
-    const mediaItems = await this.postMediaModel
-      .find({ postId: { $in: postIds } })
-      .sort({ order: 1 })
-      .lean()
-      .exec();
-
-    const mediaByPost = mediaItems.reduce<Record<string, unknown[]>>(
-      (acc, m) => {
-        const key = (m.postId as Types.ObjectId).toString();
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(m);
-        return acc;
-      },
-      {},
-    );
-
-    // Attach boat entities map
-    const [boatInfos, boatEngines, boatAdditionals] = await Promise.all([
-      this.boatInfoModel
-        .find({ postId: { $in: postIds } })
-        .lean()
-        .exec(),
-      this.boatEngineModel
-        .find({ postId: { $in: postIds } })
-        .lean()
-        .exec(),
-      this.boatAdditionalModel
-        .find({ postId: { $in: postIds } })
-        .lean()
-        .exec(),
-    ]);
-
-    const byPostId = (items: any[]) =>
-      items.reduce((acc, item) => {
-        acc[item.postId.toString()] = item;
-        return acc;
-      }, {});
-
-    const boatInfoMap = byPostId(boatInfos);
-    const boatEngineMap = byPostId(boatEngines);
-    const boatAdditionalMap = byPostId(boatAdditionals);
-
-    const [likesCounts, commentsCounts, userLikes, userSaves, profiles] =
-      await Promise.all([
-        this.likeModel.aggregate([
-          { $match: { postId: { $in: postIds } } },
-          { $group: { _id: '$postId', count: { $sum: 1 } } },
-        ]),
-        this.commentModel.aggregate([
-          { $match: { postId: { $in: postIds } } },
-          { $group: { _id: '$postId', count: { $sum: 1 } } },
-        ]),
-        user
-          ? this.likeModel
-              .find({
-                postId: { $in: postIds },
-                userId: new Types.ObjectId(user.userId),
-              })
-              .select('postId')
-              .lean()
-              .exec()
-          : Promise.resolve([]),
-        user
-          ? this.savedModel
-              .find({
-                postId: { $in: postIds },
-                userId: new Types.ObjectId(user.userId),
-              })
-              .select('postId')
-              .lean()
-              .exec()
-          : Promise.resolve([]),
-        this.profileModel
-          .find({
-            userId: {
-              $in: posts.map((p) => (p.userId as any)?._id).filter(Boolean),
-            },
-          })
-          .select('userId avatarUrl')
-          .lean()
-          .exec(),
-      ]);
-
-    const likesCountMap = likesCounts.reduce((acc, curr) => {
-      acc[curr._id.toString()] = curr.count;
-      return acc;
-    }, {});
-
-    const commentsCountMap = commentsCounts.reduce((acc, curr) => {
-      acc[curr._id.toString()] = curr.count;
-      return acc;
-    }, {});
-
-    const likedPostIds = new Set(userLikes.map((ul) => ul.postId.toString()));
-    const savedPostIds = new Set(userSaves.map((us) => us.postId.toString()));
-
-    const profileMap = profiles.reduce((acc, curr) => {
-      acc[curr.userId.toString()] = curr;
-      return acc;
-    }, {});
-
-    const data = posts.map((p) => {
-      const idStr = (p._id as Types.ObjectId).toString();
-      const bInfo = boatInfoMap[idStr] ?? null;
-      const bAdd = boatAdditionalMap[idStr] ?? null;
-
-      const displayTitle =
-        `${bInfo?.year ?? ''} ${bAdd?.manufacturer ?? ''} ${bInfo?.model ?? ''}`.trim();
-
-      const u = p.userId as any;
-      const userObj = u
-        ? { ...u, avatarUrl: profileMap[u._id?.toString()]?.avatarUrl }
-        : null;
-
-      return {
-        ...p,
-        user: userObj,
-        displayTitle,
-        boatInfo: bInfo,
-        boatEngine: boatEngineMap[idStr] ?? null,
-        boatAdditional: bAdd,
-        media: mediaByPost[idStr] ?? [],
-        likesCount: likesCountMap[idStr] ?? 0,
-        commentsCount: commentsCountMap[idStr] ?? 0,
-        shareCount: 0, // Placeholder
-        isLiked: likedPostIds.has(idStr),
-        isSaved: savedPostIds.has(idStr),
-      };
-    });
-
-    return { data, meta: { total, page, limit, totalPages } };
+    return this.queryFeedPosts(postFilter, query, user);
   }
 
   // ─── MEDIA: UPLOAD ──────────
@@ -863,6 +636,131 @@ export class PostsService {
   }
 
   // ─── Private helpers ──────────
+
+  /**
+   * Core feed query: fetches paginated posts, attaches media and user
+   * interactions, and maps them to the standard feed item shape.
+   * Used by getFeed, getMyPosts and findAll.
+   */
+  private async queryFeedPosts(
+    postFilter: Record<string, any>,
+    query: SearchPostsDto,
+    user?: AuthUser,
+  ): Promise<FeedResult> {
+    const { page = 1, limit = 15 } = query;
+    const skip = (page - 1) * limit;
+
+    const [posts, total] = await Promise.all([
+      this.postModel
+        .find(postFilter)
+        .select(
+          '_id userId location price createdAt title displayTitle shareCount likesCount commentsCount userName userAvatarUrl',
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec(),
+      this.postModel.countDocuments(postFilter).exec(),
+    ]);
+
+    const postIds = posts.map((p) => p._id);
+
+    const [mediaItems, userLikes, userSaves] = await Promise.all([
+      this.postMediaModel
+        .find({ postId: { $in: postIds } })
+        .select('postId url type order')
+        .sort({ order: 1 })
+        .lean()
+        .exec(),
+      user
+        ? this.likeModel
+            .find({
+              postId: { $in: postIds },
+              userId: new Types.ObjectId(user.userId),
+            })
+            .select('postId')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
+      user
+        ? this.savedModel
+            .find({
+              postId: { $in: postIds },
+              userId: new Types.ObjectId(user.userId),
+            })
+            .select('postId')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
+    ]);
+
+    const mediaByPost = this.buildMediaByPost(mediaItems);
+    const likedPostIds = new Set(userLikes.map((ul) => ul.postId.toString()));
+    const savedPostIds = new Set(userSaves.map((us) => us.postId.toString()));
+
+    const data = posts.map((p) =>
+      this.mapToFeedItem(p, mediaByPost, likedPostIds, savedPostIds),
+    );
+
+    const totalPages = Math.ceil(total / limit);
+    return { data, meta: { total, page, limit, totalPages } };
+  }
+
+  /** Builds a postId → media-array lookup from a flat media list. */
+  private buildMediaByPost(
+    mediaItems: Array<{
+      postId: unknown;
+      url: string;
+      type: string;
+      order: number;
+    }>,
+  ): Record<string, Array<{ url: string; type: string; order: number }>> {
+    return mediaItems.reduce<
+      Record<string, Array<{ url: string; type: string; order: number }>>
+    >((acc, m) => {
+      const key = (m.postId as Types.ObjectId).toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push({ url: m.url, type: m.type, order: m.order });
+      return acc;
+    }, {});
+  }
+
+  /** Maps a raw post document to the standard feed item shape. */
+  private mapToFeedItem(
+    p: any,
+    mediaByPost: Record<string, any[]>,
+    likedPostIds: Set<string>,
+    savedPostIds: Set<string>,
+  ): Record<string, unknown> {
+    const idStr = (p._id as Types.ObjectId).toString();
+    return {
+      _id: p._id,
+      user: {
+        _id: p.userId,
+        name: p.userName,
+        avatarUrl: p.userAvatarUrl,
+      },
+      location: p.location,
+      price: p.price,
+      displayTitle: p.displayTitle,
+      media: mediaByPost[idStr] ?? [],
+      likesCount: p.likesCount || 0,
+      commentsCount: p.commentsCount || 0,
+      shareCount: p.shareCount || 0,
+      isLiked: likedPostIds.has(idStr),
+      isSaved: savedPostIds.has(idStr),
+      createdAt: p.createdAt,
+    };
+  }
+
+  /** Builds the denormalized display title from boat sub-documents. */
+  private buildDisplayTitle(
+    boatInfo: { year?: any; model?: any } | null,
+    boatAdditional: { manufacturer?: any } | null,
+  ): string {
+    return `${boatInfo?.year ?? ''} ${boatAdditional?.manufacturer ?? ''} ${boatInfo?.model ?? ''}`.trim();
+  }
 
   private async findActivePostOrThrow(postId: string): Promise<PostDocument> {
     if (!Types.ObjectId.isValid(postId)) {

@@ -22,6 +22,7 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { SearchPostsDto } from './dto/search-posts.dto';
 import { MultipartJsonInterceptor } from '../../common/interceptors/multipart-json.interceptor';
+import { LikesService } from '../likes/likes.service';
 
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -31,7 +32,10 @@ import { Role } from '../../common/enum/role.enum';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('posts')
 export class PostsController {
-  constructor(private readonly postsService: PostsService) {}
+  constructor(
+    private readonly postsService: PostsService,
+    private readonly likesService: LikesService,
+  ) {}
 
   // ─── CREATE POST ────────
   @Post()
@@ -67,6 +71,12 @@ export class PostsController {
   @Get()
   findAll(@Query() query: SearchPostsDto, @Request() req) {
     return this.postsService.findAll(query, req.user);
+  }
+
+  // ─── MY POSTS ────────
+  @Get('me')
+  getMyPosts(@Query() query: SearchPostsDto, @Request() req) {
+    return this.postsService.getMyPosts(query, req.user);
   }
 
   // ─── GET ONE ──────────
@@ -144,5 +154,25 @@ export class PostsController {
     // Admins also go through the same soft-delete path;
     // extend here if you need a hard delete.
     return this.postsService.remove(id, req.user);
+  }
+
+  // ─── LIKES ────────
+  @Post(':id/like')
+  @HttpCode(HttpStatus.OK)
+  toggleLike(@Param('id') id: string, @Request() req) {
+    return this.likesService.toggle(id, req.user);
+  }
+
+  // ─── SHARES ────────
+  @Post(':id/share')
+  @HttpCode(HttpStatus.OK)
+  share(@Param('id') id: string) {
+    return this.postsService.share(id);
+  }
+
+  @Post('sync-counts')
+  @HttpCode(HttpStatus.OK)
+  syncCounts() {
+    return this.postsService.syncCounts();
   }
 }
