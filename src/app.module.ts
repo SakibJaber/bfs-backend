@@ -61,10 +61,12 @@ const logger = new Logger('Database');
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         aws: {
-          region: configService.get<string>('aws.region')!,
-          accessKeyId: configService.get<string>('aws.accessKeyId')!,
-          secretAccessKey: configService.get<string>('aws.secretAccessKey')!,
-          bucketName: configService.get<string>('aws.s3.bucketName')!,
+          region: configService.get<string>('aws.public.region')!,
+          accessKeyId: configService.get<string>('aws.public.accessKeyId')!,
+          secretAccessKey: configService.get<string>(
+            'aws.public.secretAccessKey',
+          )!,
+          bucketName: configService.get<string>('aws.public.bucketName')!,
         },
       }),
     }),
@@ -73,7 +75,7 @@ const logger = new Logger('Database');
     MailModule,
     UsersModule,
     AuthModule,
-    DomainModule
+    DomainModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -21,6 +21,7 @@ import { PostsService } from './posts.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { SearchPostsDto } from './dto/search-posts.dto';
+import { MultipartJsonInterceptor } from '../../common/interceptors/multipart-json.interceptor';
 
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -35,30 +36,67 @@ export class PostsController {
   // ─── CREATE POST ────────
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() createPostDto: CreatePostDto, @Request() req) {
-    return this.postsService.create(createPostDto, req.user);
+  @UseInterceptors(
+    FilesInterceptor('files', 10, {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 200 * 1024 * 1024,
+      },
+    }),
+    new MultipartJsonInterceptor([
+      'boat_info',
+      'boat_engine_info',
+      'boat_additional_info',
+    ]),
+  )
+  create(
+    @Body() createPostDto: CreatePostDto,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Request() req,
+  ) {
+    return this.postsService.create(createPostDto, req.user, files);
+  }
+
+  // ─── FEED (SIMPLIFIED) ──────
+  @Get('feed')
+  getFeed(@Query() query: SearchPostsDto, @Request() req) {
+    return this.postsService.getFeed(query, req.user);
   }
 
   // ─── LIST + SEARCH ────────
   @Get()
-  findAll(@Query() query: SearchPostsDto) {
-    return this.postsService.findAll(query);
+  findAll(@Query() query: SearchPostsDto, @Request() req) {
+    return this.postsService.findAll(query, req.user);
   }
 
   // ─── GET ONE ──────────
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.postsService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.postsService.findOne(id, req.user);
   }
 
   // ─── UPDATE POST ────────
   @Patch(':id')
+  @UseInterceptors(
+    FilesInterceptor('files', 10, {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 200 * 1024 * 1024,
+      },
+    }),
+    new MultipartJsonInterceptor([
+      'boat_info',
+      'boat_engine_info',
+      'boat_additional_info',
+    ]),
+  )
   update(
     @Param('id') id: string,
     @Body() updatePostDto: UpdatePostDto,
+    @UploadedFiles() files: Express.Multer.File[],
     @Request() req,
   ) {
-    return this.postsService.update(id, updatePostDto, req.user);
+    return this.postsService.update(id, updatePostDto, req.user, files);
   }
 
   // ─── DELETE POST ────────

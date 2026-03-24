@@ -17,6 +17,9 @@ import {
   BoatAdditional,
   BoatAdditionalDocument,
 } from './schemas/boat-additional.schema';
+import { Like, LikeDocument } from '../likes/schemas/like.schema';
+import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
+import { Saved, SavedDocument } from '../saved/schemas/saved.schema';
 
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -25,7 +28,7 @@ import { UploadsService } from '../uploads/uploads.service';
 import { Role } from '../../common/enum/role.enum';
 
 export interface AuthUser {
-  _id: string;
+  userId: string;
   role: Role;
 }
 
@@ -43,21 +46,31 @@ export class PostsService {
     private readonly boatEngineModel: Model<BoatEngineDocument>,
     @InjectModel(BoatAdditional.name)
     private readonly boatAdditionalModel: Model<BoatAdditionalDocument>,
+    @InjectModel(Like.name) private readonly likeModel: Model<LikeDocument>,
+    @InjectModel(Comment.name)
+    private readonly commentModel: Model<CommentDocument>,
+    @InjectModel(Saved.name) private readonly savedModel: Model<SavedDocument>,
     private readonly uploadsService: UploadsService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ─── CREATE ──────────
-  async create(dto: CreatePostDto, user: AuthUser): Promise<PostDocument> {
+  async create(
+    dto: CreatePostDto,
+    user: AuthUser,
+    files: Express.Multer.File[] = [],
+  ): Promise<PostDocument> {
     const session = await this.postModel.db.startSession();
     session.startTransaction();
+
+    let postId: Types.ObjectId;
 
     try {
       // 1. Create the base post
       const [post] = await this.postModel.create(
         [
           {
-            userId: new Types.ObjectId(user._id),
+            userId: new Types.ObjectId(user.userId),
             title: dto.title,
             caption: dto.caption,
             location: dto.location,
@@ -67,7 +80,7 @@ export class PostsService {
         { session },
       );
 
-      const postId = post._id as Types.ObjectId;
+      postId = post._id as Types.ObjectId;
 
       // 2. Create boat-info if provided
       if (dto.boat_info) {
@@ -98,22 +111,35 @@ export class PostsService {
 
       await post.save({ session });
       await session.commitTransaction();
-
-      this.logger.log(`Post created: ${postId} by user ${user._id}`);
-      this.eventEmitter.emit('post.created', {
-        postId: postId.toString(),
-        userId: user._id,
-      });
-
-      // Fetch the full post with all related data to return
-      const fullPost = await this.findOne(postId.toString());
-      return fullPost as any;
     } catch (err) {
       await session.abortTransaction();
       throw err;
     } finally {
       session.endSession();
     }
+
+    // 5. Upload media if files are provided (Outside transaction)
+    if (files && files.length > 0) {
+      try {
+        await this.uploadMedia(postId.toString(), files, user);
+      } catch (mediaErr) {
+        this.logger.error(
+          `Post ${postId} created but media upload failed: ${mediaErr.message}`,
+        );
+        // We still return the post even if media fails, or you can throw if critical.
+        // For now, let's let it pass but log the error.
+      }
+    }
+
+    this.logger.log(`Post created: ${postId} by user ${user.userId}`);
+    this.eventEmitter.emit('post.created', {
+      postId: postId.toString(),
+      userId: user.userId,
+    });
+
+    // Fetch the full post with all related data to return
+    const fullPost = await this.findOne(postId.toString());
+    return fullPost as any;
   }
 
   // ─── UPDATE ──────────
@@ -122,6 +148,7 @@ export class PostsService {
     postId: string,
     dto: UpdatePostDto,
     user: AuthUser,
+    files: Express.Multer.File[] = [],
   ): Promise<PostDocument> {
     const post = await this.findActivePostOrThrow(postId);
     this.assertOwnerOrAdmin(post, user);
@@ -162,8 +189,13 @@ export class PostsService {
       );
     }
 
+    // Update/Add media if files are provided
+    if (files && files.length > 0) {
+      await this.uploadMedia(postId, files, user);
+    }
+
     this.logger.log(`Post updated: ${postId}`);
-    this.eventEmitter.emit('post.updated', { postId, userId: user._id });
+    this.eventEmitter.emit('post.updated', { postId, userId: user.userId });
 
     return post;
   }
@@ -178,27 +210,38 @@ export class PostsService {
     await post.save();
 
     this.logger.log(`Post soft-deleted: ${postId}`);
-    this.eventEmitter.emit('post.deleted', { postId, userId: user._id });
+    this.eventEmitter.emit('post.deleted', { postId, userId: user.userId });
 
     return { message: 'Post deleted successfully' };
   }
 
   // ─── GET ONE ──────────
-
-  async findOne(postId: string): Promise<Record<string, unknown>> {
+  async findOne(
+    postId: string,
+    user?: AuthUser,
+  ): Promise<Record<string, unknown>> {
     if (!Types.ObjectId.isValid(postId)) {
       throw new BadRequestException('Invalid post ID');
     }
 
     const post = await this.postModel
       .findOne({ _id: postId, status: { $ne: 'deleted' } })
-      .populate('userId', 'firstName lastName avatar')
+      .populate('userId', 'name')
       .lean()
       .exec();
 
     if (!post) throw new NotFoundException('Post not found');
 
-    const [boatInfo, boatEngine, boatAdditional, media] = await Promise.all([
+    const [
+      boatInfo,
+      boatEngine,
+      boatAdditional,
+      media,
+      likesCount,
+      commentsCount,
+      isLiked,
+      isSaved,
+    ] = await Promise.all([
       this.boatInfoModel.findOne({ postId: post._id }).lean().exec(),
       this.boatEngineModel.findOne({ postId: post._id }).lean().exec(),
       this.boatAdditionalModel.findOne({ postId: post._id }).lean().exec(),
@@ -207,16 +250,201 @@ export class PostsService {
         .sort({ order: 1 })
         .lean()
         .exec(),
+      this.likeModel.countDocuments({ postId: post._id }).exec(),
+      this.commentModel.countDocuments({ postId: post._id }).exec(),
+      user
+        ? this.likeModel
+            .exists({
+              postId: post._id,
+              userId: new Types.ObjectId(user.userId),
+            })
+            .then((res) => !!res)
+        : Promise.resolve(false),
+      user
+        ? this.savedModel
+            .exists({
+              postId: post._id,
+              userId: new Types.ObjectId(user.userId),
+            })
+            .then((res) => !!res)
+        : Promise.resolve(false),
     ]);
 
-    return { ...post, boatInfo, boatEngine, boatAdditional, media };
+    const displayTitle =
+      `${boatInfo?.year ?? ''} ${boatAdditional?.manufacturer ?? ''} ${boatInfo?.model ?? ''}`.trim();
+
+    return {
+      ...post,
+      displayTitle,
+      boatInfo,
+      boatEngine,
+      boatAdditional,
+      media,
+      likesCount,
+      commentsCount,
+      shareCount: 0, // Placeholder
+      isLiked,
+      isSaved,
+    };
+  }
+
+  // ─── FEED (SIMPLIFIED) ──────────
+
+  async getFeed(
+    query: SearchPostsDto,
+    user?: AuthUser,
+  ): Promise<{
+    data: unknown[];
+    meta: { total: number; page: number; limit: number; totalPages: number };
+  }> {
+    const { page = 1, limit = 15 } = query;
+    const skip = (page - 1) * limit;
+
+    const postFilter: Record<string, any> = {
+      status: { $ne: 'deleted' },
+    };
+
+    const [posts, total] = await Promise.all([
+      this.postModel
+        .find(postFilter)
+        .select('_id userId location price createdAt title displayTitle')
+        .populate('userId', 'name')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec(),
+      this.postModel.countDocuments(postFilter).exec(),
+    ]);
+
+    const postIds = posts.map((p) => p._id);
+
+    // Fetch only necessary fields for displayTitle if not already computed or if we want to be sure
+    // Actually, in the enhanced findAll I added displayTitle, but let's make sure it's computed here too
+    // if it's not stored in the DB (it's not).
+
+    const [
+      boatInfos,
+      boatAdditionals,
+      mediaItems,
+      likesCounts,
+      commentsCounts,
+      userLikes,
+      userSaves,
+    ] = await Promise.all([
+      this.boatInfoModel
+        .find({ postId: { $in: postIds } })
+        .select('postId year model')
+        .lean()
+        .exec(),
+      this.boatAdditionalModel
+        .find({ postId: { $in: postIds } })
+        .select('postId manufacturer')
+        .lean()
+        .exec(),
+      this.postMediaModel
+        .find({ postId: { $in: postIds } })
+        .select('postId url type order')
+        .sort({ order: 1 })
+        .lean()
+        .exec(),
+      this.likeModel.aggregate([
+        { $match: { postId: { $in: postIds } } },
+        { $group: { _id: '$postId', count: { $sum: 1 } } },
+      ]),
+      this.commentModel.aggregate([
+        { $match: { postId: { $in: postIds } } },
+        { $group: { _id: '$postId', count: { $sum: 1 } } },
+      ]),
+      user
+        ? this.likeModel
+            .find({
+              postId: { $in: postIds },
+              userId: new Types.ObjectId(user.userId),
+            })
+            .select('postId')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
+      user
+        ? this.savedModel
+            .find({
+              postId: { $in: postIds },
+              userId: new Types.ObjectId(user.userId),
+            })
+            .select('postId')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
+    ]);
+
+    const boatInfoMap = boatInfos.reduce((acc, curr) => {
+      acc[curr.postId.toString()] = curr;
+      return acc;
+    }, {});
+
+    const boatAdditionalMap = boatAdditionals.reduce((acc, curr) => {
+      acc[curr.postId.toString()] = curr;
+      return acc;
+    }, {});
+
+    const mediaByPost = mediaItems.reduce<Record<string, any[]>>((acc, m) => {
+      const key = (m.postId as Types.ObjectId).toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push({ url: m.url, type: m.type, order: m.order });
+      return acc;
+    }, {});
+
+    const likesCountMap = likesCounts.reduce((acc, curr) => {
+      acc[curr._id.toString()] = curr.count;
+      return acc;
+    }, {});
+
+    const commentsCountMap = commentsCounts.reduce((acc, curr) => {
+      acc[curr._id.toString()] = curr.count;
+      return acc;
+    }, {});
+
+    const likedPostIds = new Set(userLikes.map((ul) => ul.postId.toString()));
+    const savedPostIds = new Set(userSaves.map((us) => us.postId.toString()));
+
+    const data = posts.map((p) => {
+      const idStr = p._id.toString();
+      const bInfo = boatInfoMap[idStr];
+      const bAdd = boatAdditionalMap[idStr];
+
+      const displayTitle =
+        `${bInfo?.year ?? ''} ${bAdd?.manufacturer ?? ''} ${bInfo?.model ?? ''}`.trim();
+
+      return {
+        _id: p._id,
+        user: p.userId, // Populated
+        location: p.location,
+        price: p.price,
+        displayTitle,
+        media: mediaByPost[idStr] ?? [],
+        likesCount: likesCountMap[idStr] ?? 0,
+        commentsCount: commentsCountMap[idStr] ?? 0,
+        shareCount: 0, // Placeholder
+        isLiked: likedPostIds.has(idStr),
+        isSaved: savedPostIds.has(idStr),
+        createdAt: (p as any).createdAt,
+      };
+    });
+
+    const totalPages = Math.ceil(total / limit);
+    return { data, meta: { total, page, limit, totalPages } };
   }
 
   // ─── SEARCH + PAGINATION ──────────
 
   async findAll(
     query: SearchPostsDto,
-  ): Promise<{ data: unknown[]; total: number; page: number; limit: number }> {
+    user?: AuthUser,
+  ): Promise<{
+    data: unknown[];
+    meta: { total: number; page: number; limit: number; totalPages: number };
+  }> {
     const {
       location,
       minPrice,
@@ -226,45 +454,105 @@ export class PostsService {
       maxYear,
       minLength,
       maxLength,
+      category,
+      manufacturer,
+      engineMake,
+      engineModel,
+      fuelType,
+      engineType,
+      minHorsePower,
+      maxHorsePower,
       page = 1,
       limit = 15,
     } = query;
 
     const skip = (page - 1) * limit;
 
-    // ── Build BoatInfo filter if any boat fields are provided ──────────
-    const hasBoatFilter =
-      boatType || minYear || maxYear || minLength || maxLength;
-    let boatInfoPostIds: Types.ObjectId[] | null = null;
+    // ── Build filters for related models ──────────
+    let filteredPostIds: Types.ObjectId[] | null = null;
 
-    if (hasBoatFilter) {
-      const boatFilter: Record<string, any> = {};
-      if (boatType) boatFilter.boatType = { $regex: boatType, $options: 'i' };
-      if (minYear !== undefined || maxYear !== undefined) {
-        boatFilter.year = {};
-        if (minYear !== undefined) boatFilter.year.$gte = minYear;
-        if (maxYear !== undefined) boatFilter.year.$lte = maxYear;
+    const intersectIds = (newIds: Types.ObjectId[]) => {
+      if (filteredPostIds === null) {
+        filteredPostIds = newIds;
+      } else {
+        const idStrings = new Set(newIds.map((id) => id.toString()));
+        filteredPostIds = filteredPostIds.filter((id) =>
+          idStrings.has(id.toString()),
+        );
       }
-      if (minLength !== undefined || maxLength !== undefined) {
-        boatFilter.length = {};
-        if (minLength !== undefined) boatFilter.length.$gte = minLength;
-        if (maxLength !== undefined) boatFilter.length.$lte = maxLength;
-      }
+    };
 
-      const matchingBoatInfoDocs = await this.boatInfoModel
-        .find(boatFilter)
+    // 1. BoatInfo Filters
+    const boatInfoFilter: Record<string, any> = {};
+    if (boatType) boatInfoFilter.boatType = { $regex: boatType, $options: 'i' };
+    if (category) boatInfoFilter.category = { $regex: category, $options: 'i' };
+    if (minYear !== undefined || maxYear !== undefined) {
+      boatInfoFilter.year = {};
+      if (minYear !== undefined) boatInfoFilter.year.$gte = minYear;
+      if (maxYear !== undefined) boatInfoFilter.year.$lte = maxYear;
+    }
+    if (minLength !== undefined || maxLength !== undefined) {
+      boatInfoFilter.length = {};
+      if (minLength !== undefined) boatInfoFilter.length.$gte = minLength;
+      if (maxLength !== undefined) boatInfoFilter.length.$lte = maxLength;
+    }
+
+    if (Object.keys(boatInfoFilter).length > 0) {
+      const docs = await this.boatInfoModel
+        .find(boatInfoFilter)
         .select('postId')
         .lean()
         .exec();
+      intersectIds(docs.map((d) => d.postId as Types.ObjectId));
+    }
 
-      boatInfoPostIds = matchingBoatInfoDocs.map(
-        (d) => d.postId as Types.ObjectId,
-      );
+    // 2. BoatEngine Filters
+    const engineMatch: Record<string, any> = {};
+    if (engineMake)
+      engineMatch.engineMake = { $regex: engineMake, $options: 'i' };
+    if (engineModel)
+      engineMatch.engineModel = { $regex: engineModel, $options: 'i' };
+    if (fuelType) engineMatch.fuelType = { $regex: fuelType, $options: 'i' };
+    if (engineType)
+      engineMatch.engineType = { $regex: engineType, $options: 'i' };
+    if (minHorsePower !== undefined || maxHorsePower !== undefined) {
+      engineMatch.horsePower = {};
+      if (minHorsePower !== undefined)
+        engineMatch.horsePower.$gte = minHorsePower;
+      if (maxHorsePower !== undefined)
+        engineMatch.horsePower.$lte = maxHorsePower;
+    }
 
-      // No matching boat info → return empty result immediately
-      if (boatInfoPostIds.length === 0) {
-        return { data: [], total: 0, page, limit };
-      }
+    if (Object.keys(engineMatch).length > 0) {
+      const docs = await this.boatEngineModel
+        .find({ engines: { $elemMatch: engineMatch } })
+        .select('postId')
+        .lean()
+        .exec();
+      intersectIds(docs.map((d) => d.postId as Types.ObjectId));
+    }
+
+    // 3. BoatAdditional Filters
+    const boatAdditionalFilter: Record<string, any> = {};
+    if (manufacturer) {
+      boatAdditionalFilter.manufacturer = {
+        $regex: manufacturer,
+        $options: 'i',
+      };
+    }
+
+    if (Object.keys(boatAdditionalFilter).length > 0) {
+      const docs = await this.boatAdditionalModel
+        .find(boatAdditionalFilter)
+        .select('postId')
+        .lean()
+        .exec();
+      intersectIds(docs.map((d) => d.postId as Types.ObjectId));
+    }
+
+    // If any related filter was applied and resulted in no matches
+    if (filteredPostIds && (filteredPostIds as any).length === 0) {
+      return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
     }
 
     // ── Build Post filter ──────────
@@ -282,14 +570,14 @@ export class PostsService {
       if (maxPrice !== undefined) postFilter.price.$lte = maxPrice;
     }
 
-    if (boatInfoPostIds !== null) {
-      postFilter._id = { $in: boatInfoPostIds };
+    if (filteredPostIds !== null) {
+      postFilter._id = { $in: filteredPostIds };
     }
 
     const [posts, total] = await Promise.all([
       this.postModel
         .find(postFilter)
-        .populate('userId', 'firstName lastName avatar')
+        .populate('userId', 'name')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -298,7 +586,9 @@ export class PostsService {
       this.postModel.countDocuments(postFilter).exec(),
     ]);
 
-    // Attach media covers (first ordered item per post)
+    const totalPages = Math.ceil(total / limit);
+
+    // Attach media covers
     const postIds = posts.map((p) => p._id);
     const mediaItems = await this.postMediaModel
       .find({ postId: { $in: postIds } })
@@ -316,7 +606,7 @@ export class PostsService {
       {},
     );
 
-    // Attach boat entities map by iteration
+    // Attach boat entities map
     const [boatInfos, boatEngines, boatAdditionals] = await Promise.all([
       this.boatInfoModel
         .find({ postId: { $in: postIds } })
@@ -342,18 +632,76 @@ export class PostsService {
     const boatEngineMap = byPostId(boatEngines);
     const boatAdditionalMap = byPostId(boatAdditionals);
 
+    // ─── Attach Counts and User States ──────────
+    const [likesCounts, commentsCounts, userLikes, userSaves] =
+      await Promise.all([
+        this.likeModel.aggregate([
+          { $match: { postId: { $in: postIds } } },
+          { $group: { _id: '$postId', count: { $sum: 1 } } },
+        ]),
+        this.commentModel.aggregate([
+          { $match: { postId: { $in: postIds } } },
+          { $group: { _id: '$postId', count: { $sum: 1 } } },
+        ]),
+        user
+          ? this.likeModel
+              .find({
+                postId: { $in: postIds },
+                userId: new Types.ObjectId(user.userId),
+              })
+              .select('postId')
+              .lean()
+              .exec()
+          : Promise.resolve([]),
+        user
+          ? this.savedModel
+              .find({
+                postId: { $in: postIds },
+                userId: new Types.ObjectId(user.userId),
+              })
+              .select('postId')
+              .lean()
+              .exec()
+          : Promise.resolve([]),
+      ]);
+
+    const likesCountMap = likesCounts.reduce((acc, curr) => {
+      acc[curr._id.toString()] = curr.count;
+      return acc;
+    }, {});
+
+    const commentsCountMap = commentsCounts.reduce((acc, curr) => {
+      acc[curr._id.toString()] = curr.count;
+      return acc;
+    }, {});
+
+    const likedPostIds = new Set(userLikes.map((ul) => ul.postId.toString()));
+    const savedPostIds = new Set(userSaves.map((us) => us.postId.toString()));
+
     const data = posts.map((p) => {
       const idStr = (p._id as Types.ObjectId).toString();
+      const bInfo = boatInfoMap[idStr] ?? null;
+      const bAdd = boatAdditionalMap[idStr] ?? null;
+
+      const displayTitle =
+        `${bInfo?.year ?? ''} ${bAdd?.manufacturer ?? ''} ${bInfo?.model ?? ''}`.trim();
+
       return {
         ...p,
-        boatInfo: boatInfoMap[idStr] ?? null,
+        displayTitle,
+        boatInfo: bInfo,
         boatEngine: boatEngineMap[idStr] ?? null,
-        boatAdditional: boatAdditionalMap[idStr] ?? null,
+        boatAdditional: bAdd,
         media: mediaByPost[idStr] ?? [],
+        likesCount: likesCountMap[idStr] ?? 0,
+        commentsCount: commentsCountMap[idStr] ?? 0,
+        shareCount: 0, // Placeholder
+        isLiked: likedPostIds.has(idStr),
+        isSaved: savedPostIds.has(idStr),
       };
     });
 
-    return { data, total, page, limit };
+    return { data, meta: { total, page, limit, totalPages } };
   }
 
   // ─── MEDIA: UPLOAD ──────────
@@ -480,7 +828,7 @@ export class PostsService {
   private assertOwnerOrAdmin(post: PostDocument, user: AuthUser): void {
     const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
     const isOwner =
-      (post.userId as Types.ObjectId).toString() === user._id.toString();
+      (post.userId as Types.ObjectId).toString() === user.userId.toString();
 
     if (!isAdmin && !isOwner) {
       throw new ForbiddenException(

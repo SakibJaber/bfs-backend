@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { Like, LikeSchema } from '../likes/schemas/like.schema';
+import { Comment, CommentSchema } from '../comments/schemas/comment.schema';
+import { Saved, SavedSchema } from '../saved/schemas/saved.schema';
 
 import { PostsController } from './posts.controller';
 import { PostsService } from './posts.service';
@@ -21,6 +24,9 @@ import {
       { name: BoatInfo.name, schema: BoatInfoSchema },
       { name: BoatEngine.name, schema: BoatEngineSchema },
       { name: BoatAdditional.name, schema: BoatAdditionalSchema },
+      { name: Like.name, schema: LikeSchema },
+      { name: Comment.name, schema: CommentSchema },
+      { name: Saved.name, schema: SavedSchema },
     ]),
   ],
   controllers: [PostsController],

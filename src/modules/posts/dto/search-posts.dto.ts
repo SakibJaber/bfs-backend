@@ -56,6 +56,42 @@ export class SearchPostsDto {
   maxLength?: number;
 
   @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  manufacturer?: string;
+
+  @IsOptional()
+  @IsString()
+  engineMake?: string;
+
+  @IsOptional()
+  @IsString()
+  engineModel?: string;
+
+  @IsOptional()
+  @IsString()
+  fuelType?: string;
+
+  @IsOptional()
+  @IsString()
+  engineType?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  minHorsePower?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  maxHorsePower?: number;
+
+  @IsOptional()
   @IsNumber()
   @Min(1)
   @Type(() => Number)
