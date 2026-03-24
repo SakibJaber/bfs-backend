@@ -399,6 +399,28 @@ export class PostsService {
     return this.queryFeedPosts(postFilter, query, user);
   }
 
+  // ─── SAVED POSTS ──────────
+
+  async getSavedPosts(
+    query: SearchPostsDto,
+    user: AuthUser,
+  ): Promise<FeedResult> {
+    const savedDocs = await this.savedModel
+      .find({ userId: new Types.ObjectId(user.userId) })
+      .select('postId')
+      .lean()
+      .exec();
+
+    const savedPostIds = savedDocs.map((d) => d.postId);
+
+    const postFilter: Record<string, any> = {
+      _id: { $in: savedPostIds },
+      status: { $ne: 'deleted' },
+    };
+
+    return this.queryFeedPosts(postFilter, query, user);
+  }
+
   // ─── SEARCH + PAGINATION ──────────
 
   async findAll(query: SearchPostsDto, user?: AuthUser): Promise<FeedResult> {
@@ -633,6 +655,49 @@ export class PostsService {
     await media.deleteOne();
 
     return { message: 'Media deleted successfully' };
+  }
+
+  // ─── MEDIA: LIST (RANDOMIZED) ──────────
+
+  async getMediaList(
+    type?: 'image' | 'video',
+    page = 1,
+    limit = 10,
+  ): Promise<{
+    data: PostMediaDocument[];
+    meta: { total: number; page: number; limit: number; totalPages: number };
+  }> {
+    // Only return media that belongs to active posts
+    const activePosts = await this.postModel
+      .find({ status: { $ne: 'deleted' } })
+      .select('_id')
+      .lean()
+      .exec();
+
+    const activePostIds = activePosts.map((p) => p._id);
+
+    const filter: Record<string, any> = { postId: { $in: activePostIds } };
+    if (type) {
+      filter.type = type;
+    }
+
+    const media = await this.postMediaModel.find(filter).lean().exec();
+
+    // Fisher-Yates shuffle for true randomization on every request
+    for (let i = media.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [media[i], media[j]] = [media[j], media[i]];
+    }
+
+    const total = media.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginated = media.slice(skip, skip + limit);
+
+    return {
+      data: paginated as any,
+      meta: { total, page, limit, totalPages },
+    };
   }
 
   // ─── Private helpers ──────────

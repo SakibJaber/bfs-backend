@@ -79,6 +79,16 @@ export class PostsController {
     return this.postsService.getMyPosts(query, req.user);
   }
 
+  // ─── LIST ALL MEDIA (RANDOMIZED) ────────
+  @Get('media')
+  getMediaList(
+    @Query('type') type?: 'image' | 'video',
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+  ) {
+    return this.postsService.getMediaList(type, +page, +limit);
+  }
+
   // ─── GET ONE ──────────
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req) {
