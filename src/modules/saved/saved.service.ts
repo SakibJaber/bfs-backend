@@ -1,26 +1,28 @@
 import { Injectable } from '@nestjs/common';
-import { CreateSavedDto } from './dto/create-saved.dto';
-import { UpdateSavedDto } from './dto/update-saved.dto';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { Saved, SavedDocument } from './schemas/saved.schema';
 
 @Injectable()
 export class SavedService {
-  create(createSavedDto: CreateSavedDto) {
-    return 'This action adds a new saved';
-  }
+  constructor(
+    @InjectModel(Saved.name) private readonly savedModel: Model<SavedDocument>,
+  ) {}
 
-  findAll() {
-    return `This action returns all saved`;
-  }
+  async toggle(postId: string, user: { userId: string }) {
+    const filter = {
+      postId: new Types.ObjectId(postId),
+      userId: new Types.ObjectId(user.userId),
+    };
 
-  findOne(id: number) {
-    return `This action returns a #${id} saved`;
-  }
+    const existing = await this.savedModel.findOne(filter);
 
-  update(id: number, updateSavedDto: UpdateSavedDto) {
-    return `This action updates a #${id} saved`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} saved`;
+    if (existing) {
+      await this.savedModel.deleteOne(filter);
+      return { saved: false };
+    } else {
+      await this.savedModel.create(filter);
+      return { saved: true };
+    }
   }
 }

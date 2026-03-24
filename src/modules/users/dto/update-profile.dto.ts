@@ -42,8 +42,12 @@ export class UpdateProfileDto {
   socialLinks?: SocialLinksDto;
 
   // Set internally by controller after S3 upload — not from client body
+  @IsOptional()
+  @IsString()
   avatarUrl?: string;
 
   // Legacy field: kept for backward-compat with existing updateProfile method
+  @IsOptional()
+  @IsString()
   profileImage?: string;
 }

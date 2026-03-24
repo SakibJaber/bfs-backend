@@ -20,6 +20,7 @@ import {
 import { Like, LikeDocument } from '../likes/schemas/like.schema';
 import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
 import { Saved, SavedDocument } from '../saved/schemas/saved.schema';
+import { Profile, ProfileDocument } from '../users/schemas/profile.schema';
 
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -50,6 +51,8 @@ export class PostsService {
     @InjectModel(Comment.name)
     private readonly commentModel: Model<CommentDocument>,
     @InjectModel(Saved.name) private readonly savedModel: Model<SavedDocument>,
+    @InjectModel(Profile.name)
+    private readonly profileModel: Model<ProfileDocument>,
     private readonly uploadsService: UploadsService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -239,6 +242,7 @@ export class PostsService {
       media,
       likesCount,
       commentsCount,
+      profile,
       isLiked,
       isSaved,
     ] = await Promise.all([
@@ -252,6 +256,12 @@ export class PostsService {
         .exec(),
       this.likeModel.countDocuments({ postId: post._id }).exec(),
       this.commentModel.countDocuments({ postId: post._id }).exec(),
+      post.userId
+        ? this.profileModel
+            .findOne({ userId: (post.userId as any)._id })
+            .lean()
+            .exec()
+        : Promise.resolve(null),
       user
         ? this.likeModel
             .exists({
@@ -273,8 +283,13 @@ export class PostsService {
     const displayTitle =
       `${boatInfo?.year ?? ''} ${boatAdditional?.manufacturer ?? ''} ${boatInfo?.model ?? ''}`.trim();
 
+    const userObj = post.userId
+      ? { ...(post.userId as any), avatarUrl: profile?.avatarUrl }
+      : null;
+
     return {
       ...post,
+      user: userObj,
       displayTitle,
       boatInfo,
       boatEngine,
@@ -308,7 +323,7 @@ export class PostsService {
       this.postModel
         .find(postFilter)
         .select('_id userId location price createdAt title displayTitle')
-        .populate('userId', 'name')
+        .populate('userId', 'name av')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -331,6 +346,7 @@ export class PostsService {
       commentsCounts,
       userLikes,
       userSaves,
+      profiles,
     ] = await Promise.all([
       this.boatInfoModel
         .find({ postId: { $in: postIds } })
@@ -376,6 +392,15 @@ export class PostsService {
             .lean()
             .exec()
         : Promise.resolve([]),
+      this.profileModel
+        .find({
+          userId: {
+            $in: posts.map((p) => (p.userId as any)?._id).filter(Boolean),
+          },
+        })
+        .select('userId avatarUrl')
+        .lean()
+        .exec(),
     ]);
 
     const boatInfoMap = boatInfos.reduce((acc, curr) => {
@@ -407,6 +432,10 @@ export class PostsService {
 
     const likedPostIds = new Set(userLikes.map((ul) => ul.postId.toString()));
     const savedPostIds = new Set(userSaves.map((us) => us.postId.toString()));
+    const profileMap = profiles.reduce((acc, curr) => {
+      acc[curr.userId.toString()] = curr;
+      return acc;
+    }, {});
 
     const data = posts.map((p) => {
       const idStr = p._id.toString();
@@ -416,9 +445,14 @@ export class PostsService {
       const displayTitle =
         `${bInfo?.year ?? ''} ${bAdd?.manufacturer ?? ''} ${bInfo?.model ?? ''}`.trim();
 
+      const u = p.userId as any;
+      const userObj = u
+        ? { ...u, avatarUrl: profileMap[u._id?.toString()]?.avatarUrl }
+        : null;
+
       return {
         _id: p._id,
-        user: p.userId, // Populated
+        user: userObj,
         location: p.location,
         price: p.price,
         displayTitle,
@@ -632,8 +666,7 @@ export class PostsService {
     const boatEngineMap = byPostId(boatEngines);
     const boatAdditionalMap = byPostId(boatAdditionals);
 
-    // ─── Attach Counts and User States ──────────
-    const [likesCounts, commentsCounts, userLikes, userSaves] =
+    const [likesCounts, commentsCounts, userLikes, userSaves, profiles] =
       await Promise.all([
         this.likeModel.aggregate([
           { $match: { postId: { $in: postIds } } },
@@ -663,6 +696,15 @@ export class PostsService {
               .lean()
               .exec()
           : Promise.resolve([]),
+        this.profileModel
+          .find({
+            userId: {
+              $in: posts.map((p) => (p.userId as any)?._id).filter(Boolean),
+            },
+          })
+          .select('userId avatarUrl')
+          .lean()
+          .exec(),
       ]);
 
     const likesCountMap = likesCounts.reduce((acc, curr) => {
@@ -678,6 +720,11 @@ export class PostsService {
     const likedPostIds = new Set(userLikes.map((ul) => ul.postId.toString()));
     const savedPostIds = new Set(userSaves.map((us) => us.postId.toString()));
 
+    const profileMap = profiles.reduce((acc, curr) => {
+      acc[curr.userId.toString()] = curr;
+      return acc;
+    }, {});
+
     const data = posts.map((p) => {
       const idStr = (p._id as Types.ObjectId).toString();
       const bInfo = boatInfoMap[idStr] ?? null;
@@ -686,8 +733,14 @@ export class PostsService {
       const displayTitle =
         `${bInfo?.year ?? ''} ${bAdd?.manufacturer ?? ''} ${bInfo?.model ?? ''}`.trim();
 
+      const u = p.userId as any;
+      const userObj = u
+        ? { ...u, avatarUrl: profileMap[u._id?.toString()]?.avatarUrl }
+        : null;
+
       return {
         ...p,
+        user: userObj,
         displayTitle,
         boatInfo: bInfo,
         boatEngine: boatEngineMap[idStr] ?? null,

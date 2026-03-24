@@ -4,6 +4,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { Like, LikeSchema } from '../likes/schemas/like.schema';
 import { Comment, CommentSchema } from '../comments/schemas/comment.schema';
 import { Saved, SavedSchema } from '../saved/schemas/saved.schema';
+import { Profile, ProfileSchema } from '../users/schemas/profile.schema';
 
 import { PostsController } from './posts.controller';
 import { PostsService } from './posts.service';
@@ -27,6 +28,7 @@ import {
       { name: Like.name, schema: LikeSchema },
       { name: Comment.name, schema: CommentSchema },
       { name: Saved.name, schema: SavedSchema },
+      { name: Profile.name, schema: ProfileSchema },
     ]),
   ],
   controllers: [PostsController],

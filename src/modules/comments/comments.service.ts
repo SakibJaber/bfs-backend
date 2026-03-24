@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Comment, CommentDocument } from './schemas/comment.schema';
 import { CreateCommentDto } from './dto/create-comment.dto';
+import { Profile, ProfileDocument } from '../users/schemas/profile.schema';
 
 export interface AuthUser {
   userId: string;
@@ -13,6 +14,8 @@ export class CommentsService {
   constructor(
     @InjectModel(Comment.name)
     private readonly commentModel: Model<CommentDocument>,
+    @InjectModel(Profile.name)
+    private readonly profileModel: Model<ProfileDocument>,
   ) {}
 
   async create(
@@ -32,7 +35,24 @@ export class CommentsService {
     });
 
     const saved = await created.save();
-    return saved.populate('userId', 'name');
+    const populated = await saved.populate('userId', 'name');
+
+    // Attach profile avatar
+    const profile = await this.profileModel
+      .findOne({ userId: (populated.userId as any)._id })
+      .select('avatarUrl')
+      .lean()
+      .exec();
+
+    const userObj = {
+      ...((populated.userId as any).toObject?.() || (populated.userId as any)),
+      avatarUrl: profile?.avatarUrl,
+    };
+
+    return {
+      ...(populated.toObject ? populated.toObject() : populated),
+      userId: userObj,
+    } as any;
   }
 
   async findByPost(postId: string): Promise<any[]> {
@@ -43,12 +63,43 @@ export class CommentsService {
       .lean()
       .exec();
 
+    const userIds = [
+      ...new Set(
+        comments
+          .map(
+            (c) =>
+              (c.userId as any)?._id?.toString() ||
+              (c.userId as any)?.id?.toString(),
+          )
+          .filter(Boolean),
+      ),
+    ];
+    const profiles = await this.profileModel
+      .find({ userId: { $in: userIds.map((id) => new Types.ObjectId(id)) } })
+      .select('userId avatarUrl')
+      .lean()
+      .exec();
+
+    const profileMap = profiles.reduce((acc, p) => {
+      acc[p.userId.toString()] = p;
+      return acc;
+    }, {});
+
     // Grouping comments into threads
     const commentMap = new Map();
     const roots: any[] = [];
 
     comments.forEach((comment) => {
-      commentMap.set(comment._id.toString(), { ...comment, replies: [] });
+      const u = comment.userId as any;
+      const userObj = u
+        ? { ...u, avatarUrl: profileMap[u._id?.toString() || u.id]?.avatarUrl }
+        : null;
+
+      commentMap.set(comment._id.toString(), {
+        ...comment,
+        userId: userObj,
+        replies: [],
+      });
     });
 
     comments.forEach((comment) => {

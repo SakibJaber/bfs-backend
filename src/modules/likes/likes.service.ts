@@ -1,26 +1,28 @@
 import { Injectable } from '@nestjs/common';
-import { CreateLikeDto } from './dto/create-like.dto';
-import { UpdateLikeDto } from './dto/update-like.dto';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { Like, LikeDocument } from './schemas/like.schema';
 
 @Injectable()
 export class LikesService {
-  create(createLikeDto: CreateLikeDto) {
-    return 'This action adds a new like';
-  }
+  constructor(
+    @InjectModel(Like.name) private readonly likeModel: Model<LikeDocument>,
+  ) {}
 
-  findAll() {
-    return `This action returns all likes`;
-  }
+  async toggle(postId: string, user: { userId: string }) {
+    const filter = {
+      postId: new Types.ObjectId(postId),
+      userId: new Types.ObjectId(user.userId),
+    };
 
-  findOne(id: number) {
-    return `This action returns a #${id} like`;
-  }
+    const existing = await this.likeModel.findOne(filter);
 
-  update(id: number, updateLikeDto: UpdateLikeDto) {
-    return `This action updates a #${id} like`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} like`;
+    if (existing) {
+      await this.likeModel.deleteOne(filter);
+      return { liked: false };
+    } else {
+      await this.likeModel.create(filter);
+      return { liked: true };
+    }
   }
 }
