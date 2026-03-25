@@ -129,7 +129,7 @@ export class UsersController {
         success: true,
         statusCode: 200,
         message: 'Avatar updated successfully',
-        data: { avatarUrl, profile },
+        data: profile,
       };
     } catch (error) {
       throw new HttpException(

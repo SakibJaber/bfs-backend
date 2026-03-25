@@ -144,7 +144,14 @@ export class UsersService {
 
     if (!user) throw new NotFoundException('User not found');
 
-    return { ...user, profile: profile ?? null };
+    const result = {
+      ...user,
+      ...(profile || {}),
+      _id: user._id, // Ensure user ID is preserved
+    };
+    if ('userId' in result) delete (result as any).userId;
+
+    return result;
   }
 
   async getProfileByUserId(userId: string) {
@@ -157,7 +164,6 @@ export class UsersService {
     // Update user document fields
     const userUpdates: any = {};
     if (dto.name) userUpdates.name = dto.name;
-    if (dto.profileImage) userUpdates.profileImage = dto.profileImage;
 
     if (Object.keys(userUpdates).length) {
       await this.userModel.findByIdAndUpdate(userId, userUpdates);
@@ -185,19 +191,26 @@ export class UsersService {
       .select('-password -refreshToken')
       .lean();
 
-    return { ...user, profile };
+    if (!user) throw new NotFoundException('User not found');
+
+    const result = {
+      ...user,
+      ...profile,
+      _id: user._id,
+    };
+    if ('userId' in result) delete (result as any).userId;
+
+    return result;
   }
 
   async updateAvatar(userId: string, avatarUrl: string) {
-    const profile = await this.profileModel
-      .findOneAndUpdate(
-        { userId: new Types.ObjectId(userId) },
-        { $set: { avatarUrl } },
-        { returnDocument: 'after', upsert: true },
-      )
-      .lean();
+    await this.profileModel.findOneAndUpdate(
+      { userId: new Types.ObjectId(userId) },
+      { $set: { avatarUrl } },
+      { upsert: true },
+    );
 
-    return profile;
+    return this.getProfile(userId);
   }
 
   // ─── Password ────────────────────────────────────────────────────────────────

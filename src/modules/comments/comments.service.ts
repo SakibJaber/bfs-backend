@@ -1,14 +1,15 @@
 import { Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import {
-  Comment,
-  CommentSchema,
-  CommentDocument,
-} from './schemas/comment.schema';
+import { Comment, CommentDocument } from './schemas/comment.schema';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { Profile, ProfileDocument } from '../users/schemas/profile.schema';
 import { Post, PostDocument } from '../posts/schemas/post.schema';
+import {
+  NotificationEvents,
+  NotificationEventPayload,
+} from 'src/common/events/notification-events';
 
 export interface AuthUser {
   userId: string;
@@ -23,6 +24,7 @@ export class CommentsService {
     private readonly profileModel: Model<ProfileDocument>,
     @InjectModel(Post.name)
     private readonly postModel: Model<PostDocument>,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async create(
@@ -47,6 +49,44 @@ export class CommentsService {
       { _id: new Types.ObjectId(dto.postId) },
       { $inc: { commentsCount: 1 } },
     );
+
+    // ─── Emit notification ────────────────────────────────────────────
+    if (parentId) {
+      // Reply → notify the parent comment's author
+      const parentComment = await this.commentModel
+        .findById(parentId)
+        .select('userId')
+        .lean()
+        .exec();
+
+      if (parentComment && parentComment.userId.toString() !== user.userId) {
+        const payload: NotificationEventPayload = {
+          userId: parentComment.userId.toString(),
+          actorId: user.userId,
+          postId: dto.postId,
+          commentId: saved._id.toString(),
+        };
+        this.eventEmitter.emit(NotificationEvents.REPLIED, payload);
+      }
+    } else {
+      // Top-level comment → notify the post owner
+      const post = await this.postModel
+        .findById(new Types.ObjectId(dto.postId))
+        .select('userId')
+        .lean()
+        .exec();
+
+      if (post && post.userId.toString() !== user.userId) {
+        const payload: NotificationEventPayload = {
+          userId: post.userId.toString(),
+          actorId: user.userId,
+          postId: dto.postId,
+          commentId: saved._id.toString(),
+        };
+        this.eventEmitter.emit(NotificationEvents.COMMENTED, payload);
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────
 
     const populated = await saved.populate('userId', 'name');
 
@@ -122,7 +162,6 @@ export class CommentsService {
         if (parent) {
           parent.replies.push(commentWithReplies);
         } else {
-          // If parent not found (shouldn't happen with valid data), treat as root
           roots.push(commentWithReplies);
         }
       } else {

@@ -1,34 +1,71 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Delete,
+  Patch,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
-import { CreateNotificationDto } from './dto/create-notification.dto';
-import { UpdateNotificationDto } from './dto/update-notification.dto';
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 
 @Controller('notifications')
+@UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
-  @Post()
-  create(@Body() createNotificationDto: CreateNotificationDto) {
-    return this.notificationsService.create(createNotificationDto);
-  }
-
+  /**
+   * GET /notifications?page=1&limit=20
+   * Returns paginated notifications for the authenticated user
+   */
   @Get()
-  findAll() {
-    return this.notificationsService.findAll();
+  getMyNotifications(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.notificationsService.getMyNotifications(
+      req.user.userId,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.notificationsService.findOne(+id);
+  /**
+   * GET /notifications/unread-count
+   * Returns the number of unread notifications
+   */
+  @Get('unread-count')
+  getUnreadCount(@Request() req: any) {
+    return this.notificationsService.getUnreadCount(req.user.userId);
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateNotificationDto: UpdateNotificationDto) {
-    return this.notificationsService.update(+id, updateNotificationDto);
+  /**
+   * PATCH /notifications/read-all
+   * Marks all notifications as read
+   */
+  @Patch('read-all')
+  markAllRead(@Request() req: any) {
+    return this.notificationsService.markAllRead(req.user.userId);
   }
 
+  /**
+   * PATCH /notifications/:id/read
+   * Marks a single notification as read
+   */
+  @Patch(':id/read')
+  markAsRead(@Param('id') id: string, @Request() req: any) {
+    return this.notificationsService.markAsRead(id, req.user.userId);
+  }
+
+  /**
+   * DELETE /notifications/:id
+   * Deletes a notification
+   */
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.notificationsService.remove(+id);
+  deleteOne(@Param('id') id: string, @Request() req: any) {
+    return this.notificationsService.deleteOne(id, req.user.userId);
   }
 }
