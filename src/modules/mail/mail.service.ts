@@ -162,11 +162,7 @@ export class MailService {
       }
       message += `\n\nIf you believe this is a mistake, please contact our support team.`;
 
-      await this.sendEmail(
-        email,
-        'Update on your Bfs Registration',
-        message,
-      );
+      await this.sendEmail(email, 'Update on your Bfs Registration', message);
     } catch (err) {
       this.logger.error(
         `Failed to send rejection email to ${email}: ${err.message}`,
@@ -226,6 +222,32 @@ export class MailService {
     } catch (err) {
       this.logger.error(
         `Failed to send admin credentials to ${email}: ${err.message}`,
+      );
+    }
+  }
+
+  async sendSupportReply(
+    email: string,
+    name: string,
+    originalMessage: string,
+    reply: string,
+  ) {
+    try {
+      const message = `
+        Dear ${name},<br><br>
+        Thank you for contacting BFS Support. Here is a response to your message:<br><br>
+        <strong>Your Message:</strong><br>
+        ${originalMessage}<br><br>
+        <strong>Support Response:</strong><br>
+        ${reply}<br><br>
+        If you have any further questions, please don't hesitate to reply to this email.<br><br>
+        Best regards,<br>
+        BFS Support Team
+      `;
+      await this.sendEmail(email, 'Re: BFS Contact & Support', message);
+    } catch (err) {
+      this.logger.error(
+        `Failed to send support reply to ${email}: ${err.message}`,
       );
     }
   }

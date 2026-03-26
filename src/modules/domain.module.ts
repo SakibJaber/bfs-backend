@@ -9,6 +9,7 @@ import { LikesModule } from 'src/modules/likes/likes.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
 import { PostsModule } from 'src/modules/posts/posts.module';
 import { SavedModule } from 'src/modules/saved/saved.module';
+import { ReportsModule } from 'src/modules/reports/reports.module';
 import { SearchModule } from 'src/modules/search/search.module';
 import { UsersModule } from 'src/modules/users/users.module';
 import { WebsocketModule } from 'src/modules/websocket/websocket.module';
@@ -28,6 +29,7 @@ import { WebsocketModule } from 'src/modules/websocket/websocket.module';
     WebsocketModule,
     ContactSupportModule,
     LegalContentModule,
+    ReportsModule,
   ],
 })
 export class DomainModule {}

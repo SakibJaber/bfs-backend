@@ -6,12 +6,14 @@ import {
   ContactSupport,
   ContactSupportSchema,
 } from './schemas/contact-support.schema';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: ContactSupport.name, schema: ContactSupportSchema },
     ]),
+    MailModule,
   ],
   controllers: [ContactSupportController],
   providers: [ContactSupportService],

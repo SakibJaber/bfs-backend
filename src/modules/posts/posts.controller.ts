@@ -68,6 +68,7 @@ export class PostsController {
   }
 
   // ─── LIST + SEARCH ────────
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Get()
   findAll(@Query() query: SearchPostsDto, @Request() req) {
     return this.postsService.findAll(query, req.user);

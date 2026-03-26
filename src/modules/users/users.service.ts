@@ -111,12 +111,36 @@ export class UsersService {
     }
 
     const [data, total] = await Promise.all([
-      this.userModel
-        .find(filter)
-        .skip(skip)
-        .limit(limit)
-        .select('-password')
-        .lean(),
+      this.userModel.aggregate([
+        { $match: filter },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'profiles',
+            localField: '_id',
+            foreignField: 'userId',
+            as: 'profile',
+          },
+        },
+        { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            password: 0,
+            refreshToken: 0,
+            emailVerificationOtp: 0,
+            emailVerificationOtpExpires: 0,
+            passwordResetOtp: 0,
+            passwordResetOtpExpires: 0,
+          },
+        },
+        {
+          $addFields: {
+            phone: '$profile.phone',
+          },
+        },
+      ]),
       this.userModel.countDocuments(filter),
     ]);
 

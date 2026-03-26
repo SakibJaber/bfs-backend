@@ -8,11 +8,14 @@ import {
   ContactSupportDocument,
 } from './schemas/contact-support.schema';
 
+import { MailService } from '../mail/mail.service';
+
 @Injectable()
 export class ContactSupportService {
   constructor(
     @InjectModel(ContactSupport.name)
     private contactSupportModel: Model<ContactSupportDocument>,
+    private mailService: MailService,
   ) {}
 
   private async formatSupport(support: any, userId?: string) {
@@ -41,15 +44,30 @@ export class ContactSupportService {
     const limit = parseInt(query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    const filter: any = {};
+
+    if (query.status) {
+      filter.status = query.status;
+    }
+
+    if (query.search) {
+      const searchRegex = new RegExp(query.search, 'i');
+      filter.$or = [
+        { name: searchRegex },
+        { email: searchRegex },
+        { message: searchRegex },
+      ];
+    }
+
     const [data, total] = await Promise.all([
       this.contactSupportModel
-        .find()
+        .find(filter)
         .populate('userId', 'name email role')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .exec(),
-      this.contactSupportModel.countDocuments(),
+      this.contactSupportModel.countDocuments(filter),
     ]);
 
     const formattedData = await Promise.all(
@@ -101,6 +119,16 @@ export class ContactSupportService {
     if (!updatedMessage) {
       throw new NotFoundException(
         `Contact support message with ID ${id} not found`,
+      );
+    }
+
+    // If an admin response is provided, send an email email to the user
+    if (updateContactSupportDto.adminResponse) {
+      await this.mailService.sendSupportReply(
+        updatedMessage.email,
+        updatedMessage.name,
+        updatedMessage.message,
+        updateContactSupportDto.adminResponse,
       );
     }
 
