@@ -111,41 +111,32 @@ export class UsersService {
     }
 
     const [data, total] = await Promise.all([
-      this.userModel.aggregate([
-        { $match: filter },
-        { $sort: { createdAt: -1 } },
-        { $skip: skip },
-        { $limit: limit },
-        {
-          $lookup: {
-            from: 'profiles',
-            localField: '_id',
-            foreignField: 'userId',
-            as: 'profile',
-          },
-        },
-        { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
-        {
-          $project: {
-            password: 0,
-            refreshToken: 0,
-            emailVerificationOtp: 0,
-            emailVerificationOtpExpires: 0,
-            passwordResetOtp: 0,
-            passwordResetOtpExpires: 0,
-          },
-        },
-        {
-          $addFields: {
-            phone: '$profile.phone',
-          },
-        },
-      ]),
+      this.userModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select(
+          '-password -refreshToken -emailVerificationOtp -emailVerificationOtpExpires -passwordResetOtp -passwordResetOtpExpires',
+        )
+        .lean(),
       this.userModel.countDocuments(filter),
     ]);
 
+    const formattedData = await Promise.all(
+      data.map(async (user) => {
+        const profile = await this.profileModel
+          .findOne({ userId: user._id })
+          .lean();
+        return {
+          ...user,
+          phone: profile?.phone,
+        };
+      }),
+    );
+
     return {
-      data,
+      data: formattedData,
       total,
       page,
       limit,

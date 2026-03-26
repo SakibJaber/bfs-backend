@@ -1,26 +1,29 @@
 import { Injectable } from '@nestjs/common';
-import { CreateAdminDto } from './dto/create-admin.dto';
-import { UpdateAdminDto } from './dto/update-admin.dto';
+import { UsersService } from '../users/users.service';
+import { CreateAdminDto } from '../users/dto/create-admin.dto';
+import { Role } from 'src/common/enum/role.enum';
 
 @Injectable()
 export class AdminService {
-  create(createAdminDto: CreateAdminDto) {
-    return 'This action adds a new admin';
+  constructor(private readonly usersService: UsersService) {}
+
+  async create(createAdminDto: CreateAdminDto) {
+    return this.usersService.createAdmin(createAdminDto);
   }
 
-  findAll() {
-    return `This action returns all admin`;
+  async findAll(query: any) {
+    return this.usersService.findAll({ ...query, role: Role.ADMIN });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} admin`;
+  async findOne(id: string) {
+    return this.usersService.getProfile(id);
   }
 
-  update(id: number, updateAdminDto: UpdateAdminDto) {
-    return `This action updates a #${id} admin`;
+  async toggleStatus(id: string, requestingUserId: string) {
+    return this.usersService.toggleUserStatus(id, requestingUserId);
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} admin`;
+  async remove(id: string) {
+    return this.usersService.deleteUser(id);
   }
 }
