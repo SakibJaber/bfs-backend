@@ -1,1 +1,11 @@
-export class CreateChatDto {}
+import { IsString, IsNotEmpty, IsEnum } from 'class-validator';
+
+export class CreateChatDto {
+  @IsString()
+  @IsNotEmpty()
+  appointmentId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  message: string;
+}

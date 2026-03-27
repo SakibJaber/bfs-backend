@@ -3,5 +3,6 @@ export const UPLOAD_FOLDERS = {
   USER_PROFILES: 'user-profiles',
   AVATARS: 'user-avatars',
   POSTS: 'posts',
+  CHAT: 'chat',
   OTHERS: 'others',
 };
