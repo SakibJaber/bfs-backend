@@ -47,16 +47,14 @@ async function bootstrap() {
   // );
 
   //   Global prefix
-  
+
   app.setGlobalPrefix('api');
 
   //   Global Interceptors & Filters
   app.useGlobalInterceptors(new ResponseInterceptor());
 
   // Resolve AuditLogsService to inject into SecurityExceptionFilter
-  app.useGlobalFilters(
-    new HttpExceptionFilter(),
-  );
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   //   Validation
   app.useGlobalPipes(
@@ -66,6 +64,7 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+
   //  CORS
   const allowlist = [
     'http://localhost:3000',
@@ -73,6 +72,8 @@ async function bootstrap() {
     'http://localhost:3001',
     'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:2022',
+    'http://10.10.20.43:2022',
   ];
 
   app.enableCors({

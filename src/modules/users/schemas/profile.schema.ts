@@ -14,10 +14,17 @@ export class Profile {
   })
   userId: Types.ObjectId;
 
-  @Prop() name: string;
-  @Prop() bio: string;
-  @Prop() phone: string;
-  @Prop() avatarUrl: string;
+  @Prop()
+  name: string;
+
+  @Prop()
+  bio: string;
+
+  @Prop()
+  phone: string;
+
+  @Prop()
+  avatarUrl: string;
 
   @Prop({
     type: {

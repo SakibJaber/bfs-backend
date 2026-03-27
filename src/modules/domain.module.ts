@@ -13,6 +13,7 @@ import { ReportsModule } from 'src/modules/reports/reports.module';
 import { SearchModule } from 'src/modules/search/search.module';
 import { UsersModule } from 'src/modules/users/users.module';
 import { WebsocketModule } from 'src/modules/websocket/websocket.module';
+import { DashboardModule } from 'src/modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { WebsocketModule } from 'src/modules/websocket/websocket.module';
     ContactSupportModule,
     LegalContentModule,
     ReportsModule,
+    DashboardModule,
   ],
 })
 export class DomainModule {}

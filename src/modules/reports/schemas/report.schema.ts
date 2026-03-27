@@ -29,6 +29,9 @@ export class Report {
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   resolvedBy?: Types.ObjectId;
+
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export const ReportSchema = SchemaFactory.createForClass(Report);
