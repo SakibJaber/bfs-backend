@@ -4,6 +4,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Report, ReportDocument } from './schemas/report.schema';
@@ -179,5 +180,16 @@ export class ReportsService {
     }
 
     return report;
+  }
+
+  @OnEvent('user.deleted')
+  async handleUserDeleted(userId: string) {
+    const userObjId = new Types.ObjectId(userId);
+    await this.reportModel.deleteMany({
+      $or: [
+        { reporterId: userObjId },
+        { targetId: userObjId, targetType: 'user' },
+      ],
+    });
   }
 }

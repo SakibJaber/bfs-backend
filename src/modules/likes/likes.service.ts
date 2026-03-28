@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Like, LikeDocument } from './schemas/like.schema';
@@ -55,5 +55,10 @@ export class LikesService {
 
       return { liked: true };
     }
+  }
+
+  @OnEvent('user.deleted')
+  async handleUserDeleted(userId: string) {
+    await this.likeModel.deleteMany({ userId: new Types.ObjectId(userId) });
   }
 }

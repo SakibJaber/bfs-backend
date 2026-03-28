@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Saved, SavedDocument } from './schemas/saved.schema';
@@ -57,5 +57,10 @@ export class SavedService {
 
   async findMySavedPosts(query: SearchPostsDto, user: AuthUser) {
     return this.postsService.getSavedPosts(query, user);
+  }
+
+  @OnEvent('user.deleted')
+  async handleUserDeleted(userId: string) {
+    await this.savedModel.deleteMany({ userId: new Types.ObjectId(userId) });
   }
 }

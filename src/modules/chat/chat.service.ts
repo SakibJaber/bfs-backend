@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -251,5 +252,20 @@ export class ChatService {
     limit: number = 20,
   ) {
     return this.getConversations(userId, role, page, limit);
+  }
+
+  @OnEvent('user.deleted')
+  async handleUserDeleted(userId: string) {
+    const userObjId = new Types.ObjectId(userId);
+
+    // Delete all messages sent or received by the user
+    await this.messageModel.deleteMany({
+      $or: [{ 'sender.id': userObjId }, { 'receiver.id': userObjId }],
+    });
+
+    // Delete all conversations where the user is a participant
+    await this.conversationModel.deleteMany({
+      'participants.id': userObjId,
+    });
   }
 }

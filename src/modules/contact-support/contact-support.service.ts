@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { CreateContactSupportDto } from './dto/create-contact-support.dto';
@@ -147,5 +148,12 @@ export class ContactSupportService {
     }
 
     return deletedMessage;
+  }
+
+  @OnEvent('user.deleted')
+  async handleUserDeleted(userId: string) {
+    await this.contactSupportModel.deleteMany({
+      userId: new Types.ObjectId(userId),
+    });
   }
 }

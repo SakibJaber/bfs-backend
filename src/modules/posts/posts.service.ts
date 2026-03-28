@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 
 import { Post, PostDocument } from './schemas/post.schema';
 import { PostMedia, PostMediaDocument } from './schemas/post-media.schema';
@@ -851,5 +851,13 @@ export class PostsService {
         'You do not have permission to modify this post',
       );
     }
+  }
+
+  @OnEvent('user.deleted')
+  async handleUserDeleted(userId: string) {
+    await this.postModel.deleteMany({ userId: new Types.ObjectId(userId) });
+    // Note: In a fully comprehensive deletion, we'd also delete media from S3
+    // and related boat info, but bulk deleting posts is the initial step
+    // to remove them from the platform.
   }
 }

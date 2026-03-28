@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -114,5 +115,13 @@ export class NotificationsService {
       throw new NotFoundException('Notification not found');
     }
     return { success: true };
+  }
+
+  @OnEvent('user.deleted')
+  async handleUserDeleted(userId: string) {
+    const userObjId = new Types.ObjectId(userId);
+    await this.notificationModel.deleteMany({
+      $or: [{ userId: userObjId }, { actorId: userObjId }],
+    });
   }
 }

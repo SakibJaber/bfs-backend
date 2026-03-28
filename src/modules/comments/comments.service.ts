@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Comment, CommentDocument } from './schemas/comment.schema';
@@ -188,5 +188,10 @@ export class CommentsService {
     }
 
     return { deletedCount: 0 };
+  }
+
+  @OnEvent('user.deleted')
+  async handleUserDeleted(userId: string) {
+    await this.commentModel.deleteMany({ userId: new Types.ObjectId(userId) });
   }
 }
