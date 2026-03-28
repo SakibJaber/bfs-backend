@@ -26,6 +26,7 @@ import { ChangeRoleDto } from './dto/change-role.dto';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { UPLOAD_FOLDERS } from 'src/common/constants/constants';
 import { UploadsService } from 'src/modules/uploads/uploads.service';
+import { ParseFormDataJsonInterceptor } from 'src/common/interceptors/parse-form-data-json.interceptor';
 
 @Controller('users')
 export class UsersController {
@@ -66,7 +67,10 @@ export class UsersController {
    */
   @UseGuards(JwtAuthGuard)
   @Patch('update-profile')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(
+    FileInterceptor('image'),
+    new ParseFormDataJsonInterceptor('socialLinks'),
+  )
   async updateProfile(
     @Req() req,
     @Body() dto: UpdateProfileDto,

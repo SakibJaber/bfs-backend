@@ -2,23 +2,22 @@ import {
   IsOptional,
   IsString,
   IsNotEmpty,
-  IsUrl,
+  IsObject,
   ValidateNested,
-  IsPhoneNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SocialLinksDto {
   @IsOptional()
-  @IsUrl()
+  @IsString()
   facebook?: string;
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
   instagram?: string;
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
   twitter?: string;
 }
 
@@ -37,6 +36,7 @@ export class UpdateProfileDto {
   phone?: string;
 
   @IsOptional()
+  @IsObject()
   @ValidateNested()
   @Type(() => SocialLinksDto)
   socialLinks?: SocialLinksDto;
