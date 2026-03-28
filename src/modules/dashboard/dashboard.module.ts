@@ -4,15 +4,15 @@ import { DashboardService } from './dashboard.service';
 import { DashboardController } from './dashboard.controller';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Post, PostSchema } from '../posts/schemas/post.schema';
-import { Report, ReportSchema } from '../reports/schemas/report.schema';
+import { ReportsModule } from '../reports/reports.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Post.name, schema: PostSchema },
-      { name: Report.name, schema: ReportSchema },
     ]),
+    ReportsModule,
   ],
   controllers: [DashboardController],
   providers: [DashboardService],

@@ -364,6 +364,8 @@ export class UsersService {
         userId: new Types.ObjectId(userId),
       }),
     ]);
+
+    this.eventEmitter.emit('user.deleted', userId);
   }
 
   /** @deprecated use deleteUser */

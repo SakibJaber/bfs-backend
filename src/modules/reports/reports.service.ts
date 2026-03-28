@@ -12,11 +12,15 @@ import { UpdateReportDto } from './dto/update-report.dto';
 import { UploadsService } from '../uploads/uploads.service';
 import { PostsService } from '../posts/posts.service';
 import { UsersService } from '../users/users.service';
+import { Post, PostDocument } from '../posts/schemas/post.schema';
+import { User, UserDocument } from '../users/schemas/user.schema';
 
 @Injectable()
 export class ReportsService {
   constructor(
     @InjectModel(Report.name) private reportModel: Model<ReportDocument>,
+    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    @InjectModel(Post.name) private readonly postModel: Model<PostDocument>,
     private readonly uploadsService: UploadsService,
     @Inject(forwardRef(() => PostsService))
     private readonly postsService: PostsService,
@@ -81,13 +85,79 @@ export class ReportsService {
     const newReport = new this.reportModel({
       ...createReportDto,
       image: imageUrl,
-      reporterId: new Types.ObjectId(user.id),
+      reporterId: new Types.ObjectId(user.userId),
     });
     return newReport.save();
   }
 
-  async findAll(): Promise<Report[]> {
-    return this.reportModel.find().sort({ createdAt: -1 }).exec();
+  async findAll(): Promise<any[]> {
+    return this.findAllFormatted();
+  }
+
+  async findAllFormatted(limit?: number): Promise<any[]> {
+    const query = this.reportModel.find().sort({ createdAt: -1 }).lean();
+
+    if (limit) {
+      query.limit(limit);
+    }
+
+    const reports = await query.exec();
+
+    return Promise.all(
+      reports.map(async (report) => {
+        let reportedBy = 'Unknown';
+        const reporter = await this.userModel
+          .findById(report.reporterId)
+          .select('name')
+          .lean()
+          .exec();
+        reportedBy = reporter?.name || 'Unknown';
+
+        let postedBy = 'Unknown';
+        if (report.targetType === 'post') {
+          const post = await this.postModel
+            .findById(report.targetId)
+            .select('userName userId')
+            .lean()
+            .exec();
+
+          if (post) {
+            postedBy = post.userName || 'Unknown';
+            if ((postedBy === 'Unknown' || !postedBy) && post.userId) {
+              const author = await this.userModel
+                .findById(post.userId)
+                .select('name')
+                .lean()
+                .exec();
+              postedBy = author?.name || 'Unknown';
+            }
+          }
+        } else if (report.targetType === 'user') {
+          const user = await this.userModel
+            .findById(report.targetId)
+            .select('name')
+            .lean()
+            .exec();
+          postedBy = user?.name || 'Unknown';
+        }
+
+        return {
+          id: report._id,
+          reporterId: report.reporterId,
+          reportedBy,
+          reportType: report.targetType.toUpperCase(),
+          targetId: report.targetId,
+          postedBy,
+          note: report.note,
+          image: (report as any).image,
+          reportedDate: report.createdAt,
+          status:
+            report.status.charAt(0).toUpperCase() + report.status.slice(1),
+          createdAt: report.createdAt,
+          updatedAt: (report as any).updatedAt,
+        };
+      }),
+    );
   }
 
   async updateStatus(
@@ -99,7 +169,7 @@ export class ReportsService {
       id,
       {
         status: updateReportDto.status,
-        resolvedBy: new Types.ObjectId(admin.id),
+        resolvedBy: new Types.ObjectId(admin.userId),
       },
       { new: true },
     );
