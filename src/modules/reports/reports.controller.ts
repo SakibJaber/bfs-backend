@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  Delete,
   UseGuards,
   Request,
   UseInterceptors,
@@ -63,5 +64,12 @@ export class ReportsController {
     @Request() req,
   ) {
     return this.reportsService.updateStatus(id, updateReportDto, req.user);
+  }
+
+  @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  remove(@Param('id') id: string) {
+    return this.reportsService.remove(id);
   }
 }

@@ -192,4 +192,12 @@ export class ReportsService {
       ],
     });
   }
+
+  async remove(id: string): Promise<any> {
+    const report = await this.reportModel.findByIdAndDelete(id).exec();
+    if (!report) {
+      throw new NotFoundException(`Report with ID ${id} not found`);
+    }
+    return { message: 'Report deleted successfully' };
+  }
 }
