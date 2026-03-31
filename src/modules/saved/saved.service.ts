@@ -30,7 +30,7 @@ export class SavedService {
 
     if (existing) {
       await this.savedModel.deleteOne(filter);
-      return { saved: false };
+      return { saved: false, message: 'Post unsaved successfully' };
     } else {
       const [post] = await Promise.all([
         this.postModel
@@ -51,7 +51,7 @@ export class SavedService {
         this.eventEmitter.emit(NotificationEvents.SAVED, payload);
       }
 
-      return { saved: true };
+      return { saved: true, message: 'Post saved successfully' };
     }
   }
 

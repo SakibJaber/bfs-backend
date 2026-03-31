@@ -32,7 +32,7 @@ export class LikesService {
         { _id: postObjectId },
         { $inc: { likesCount: -1 } },
       );
-      return { liked: false };
+      return { liked: false, message: 'Post unliked successfully' };
     } else {
       const [post] = await Promise.all([
         this.postModel.findById(postObjectId).select('userId').lean().exec(),
@@ -53,7 +53,7 @@ export class LikesService {
         this.eventEmitter.emit(NotificationEvents.LIKED, payload);
       }
 
-      return { liked: true };
+      return { liked: true, message: 'Post liked successfully' };
     }
   }
 

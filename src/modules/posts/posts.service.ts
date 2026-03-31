@@ -171,7 +171,10 @@ export class PostsService {
 
     // Return full post with all related data
     const fullPost = await this.findOne(postId.toString());
-    return fullPost as any;
+    return {
+      data: fullPost,
+      message: 'Post created successfully',
+    } as any;
   }
 
   // ─── UPDATE ──────────
@@ -229,7 +232,10 @@ export class PostsService {
     this.logger.log(`Post updated: ${postId}`);
     this.eventEmitter.emit('post.updated', { postId, userId: user.userId });
 
-    return post;
+    return {
+      data: post,
+      message: 'Post updated successfully',
+    } as any;
   }
 
   // ─── SOFT DELETE ──────────
@@ -249,11 +255,13 @@ export class PostsService {
 
   // ─── SHARE POST ──────────
 
-  async share(postId: string): Promise<{ shareCount: number }> {
+  async share(
+    postId: string,
+  ): Promise<{ shareCount: number; message: string }> {
     const post = (await this.findActivePostOrThrow(postId)) as any;
     post.shareCount = (post.shareCount || 0) + 1;
     await post.save();
-    return { shareCount: post.shareCount };
+    return { shareCount: post.shareCount, message: 'Post shared successfully' };
   }
 
   // ─── SYNC COUNTS ──────────
@@ -620,7 +628,10 @@ export class PostsService {
       createdMedia.push(media);
     }
 
-    return createdMedia;
+    return {
+      data: createdMedia,
+      message: 'Media uploaded successfully',
+    } as any;
   }
 
   // ─── MEDIA: DELETE ──────────

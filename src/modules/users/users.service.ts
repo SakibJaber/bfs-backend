@@ -82,7 +82,10 @@ export class UsersService {
       password: data.password,
     });
 
-    return admin;
+    return {
+      data: admin,
+      message: 'Admin created successfully',
+    } as any;
   }
 
   // ─── Finders ────────────────────────────────────────────────────────────────
@@ -215,7 +218,10 @@ export class UsersService {
     };
     if ('userId' in result) delete (result as any).userId;
 
-    return result;
+    return {
+      data: result,
+      message: 'Profile updated successfully',
+    } as any;
   }
 
   async updateAvatar(userId: string, avatarUrl: string) {
@@ -225,7 +231,11 @@ export class UsersService {
       { upsert: true },
     );
 
-    return this.getProfile(userId);
+    const profile = await this.getProfile(userId);
+    return {
+      data: profile,
+      message: 'Avatar updated successfully',
+    } as any;
   }
 
   // ─── Password ────────────────────────────────────────────────────────────────
@@ -244,6 +254,8 @@ export class UsersService {
     await this.userModel.findByIdAndUpdate(userId, {
       password: hashedPassword,
     });
+
+    return { message: 'Password changed successfully' };
   }
 
   // ─── Token & OTP ─────────────────────────────────────────────────────────────
@@ -366,6 +378,8 @@ export class UsersService {
     ]);
 
     this.eventEmitter.emit('user.deleted', userId);
+
+    return { message: 'User deleted successfully' };
   }
 
   /** @deprecated use deleteUser */
@@ -386,11 +400,16 @@ export class UsersService {
         ? UserStatus.ACTIVE
         : UserStatus.BLOCKED;
 
-    return this.userModel.findByIdAndUpdate(
+    const result = await this.userModel.findByIdAndUpdate(
       userId,
       { status: newStatus },
       { returnDocument: 'after' },
     );
+
+    return {
+      data: result,
+      message: `User ${newStatus === UserStatus.BLOCKED ? 'blocked' : 'unblocked'} successfully`,
+    } as any;
   }
 
   async changeRole(userId: string, role: string) {

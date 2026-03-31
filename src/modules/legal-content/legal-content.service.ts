@@ -38,6 +38,9 @@ export class LegalContentService {
       )
       .exec();
 
-    return updatedContent;
+    return {
+      data: updatedContent,
+      message: 'Legal content updated successfully',
+    } as any;
   }
 }

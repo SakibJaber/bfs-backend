@@ -37,7 +37,11 @@ export class ContactSupportService {
       userId: new Types.ObjectId(userId),
     });
     const saved = await newMessage.save();
-    return this.formatSupport(saved, userId);
+    const formatted = await this.formatSupport(saved, userId);
+    return {
+      data: formatted,
+      message: 'Support request submitted successfully',
+    } as any;
   }
 
   async findAll(query: any): Promise<any> {
@@ -133,7 +137,11 @@ export class ContactSupportService {
       );
     }
 
-    return this.formatSupport(updatedMessage);
+    const formatted = await this.formatSupport(updatedMessage);
+    return {
+      data: formatted,
+      message: 'Support request updated successfully',
+    } as any;
   }
 
   async remove(id: string): Promise<ContactSupport> {
@@ -147,7 +155,7 @@ export class ContactSupportService {
       );
     }
 
-    return deletedMessage;
+    return { message: 'Support request deleted successfully' } as any;
   }
 
   @OnEvent('user.deleted')

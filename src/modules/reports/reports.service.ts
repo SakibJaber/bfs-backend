@@ -88,7 +88,11 @@ export class ReportsService {
       image: imageUrl,
       reporterId: new Types.ObjectId(user.userId),
     });
-    return newReport.save();
+    const saved = await newReport.save();
+    return {
+      data: saved,
+      message: 'Report submitted successfully',
+    } as any;
   }
 
   async findAll(): Promise<any[]> {
@@ -179,7 +183,10 @@ export class ReportsService {
       throw new NotFoundException(`Report with ID ${id} not found`);
     }
 
-    return report;
+    return {
+      data: report,
+      message: 'Report status updated successfully',
+    } as any;
   }
 
   @OnEvent('user.deleted')

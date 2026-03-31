@@ -103,8 +103,11 @@ export class CommentsService {
     };
 
     return {
-      ...(populated.toObject ? populated.toObject() : populated),
-      userId: userObj,
+      data: {
+        ...(populated.toObject ? populated.toObject() : populated),
+        userId: userObj,
+      },
+      message: parentId ? 'Replied successfully' : 'Commented successfully',
     } as any;
   }
 
@@ -184,10 +187,10 @@ export class CommentsService {
         { _id: comment.postId },
         { $inc: { commentsCount: -1 } },
       );
-      return res;
+      return { message: 'Comment deleted successfully' };
     }
 
-    return { deletedCount: 0 };
+    return { message: 'Comment not found or already deleted' };
   }
 
   @OnEvent('user.deleted')
