@@ -21,7 +21,10 @@ export class NotificationsService {
     userId: string,
     page = 1,
     limit = 20,
-  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    data: any[];
+    meta: { total: number; page: number; limit: number; totalPages: number };
+  }> {
     const filter = { userId: new Types.ObjectId(userId) };
     const skip = (page - 1) * limit;
 
@@ -73,7 +76,11 @@ export class NotificationsService {
       };
     });
 
-    return { data, total, page, limit };
+    const totalPages = Math.ceil(total / limit);
+    return {
+      data,
+      meta: { total, page, limit, totalPages },
+    };
   }
 
   async getUnreadCount(userId: string): Promise<{ count: number }> {
