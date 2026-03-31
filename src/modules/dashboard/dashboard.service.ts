@@ -20,9 +20,11 @@ export class DashboardService {
   async getDashboardStats() {
     const [totalUsers, activeUsers, totalPosts, recentReports] =
       await Promise.all([
-        this.userModel.countDocuments({ role: { $ne: Role.SUPER_ADMIN } }),
         this.userModel.countDocuments({
-          role: { $ne: Role.SUPER_ADMIN },
+          role: { $nin: [Role.SUPER_ADMIN, Role.ADMIN] },
+        }),
+        this.userModel.countDocuments({
+          role: { $nin: [Role.SUPER_ADMIN, Role.ADMIN] },
           status: UserStatus.ACTIVE,
         }),
         this.postModel.countDocuments({ status: 'active' }),
