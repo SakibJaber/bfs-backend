@@ -12,64 +12,64 @@ export class BoatAdditional {
     unique: true,
     index: true,
   })
-  postId: Types.ObjectId;
+  postId!: Types.ObjectId;
 
   @Prop({ trim: true })
-  manufacturer: string;
+  manufacturer!: string;
 
   @Prop({ trim: true })
-  engineModel: string;
+  engineModel!: string;
 
   /** Bridge clearance in feet */
   @Prop({ min: 0 })
-  bridgeClearance: number;
+  bridgeClearance!: number;
 
   /** Fuel capacity in gallons */
   @Prop({ min: 0 })
-  fuelCapacity: number;
+  fuelCapacity!: number;
 
   /** Fresh water tank in gallons */
   @Prop({ min: 0 })
-  freshWaterTank: number;
+  freshWaterTank!: number;
 
   /** Cruise speed in knots */
   @Prop({ min: 0 })
-  cruiseSpeed: number;
+  cruiseSpeed!: number;
 
   /** Length overall in feet */
   @Prop({ min: 0 })
-  loa: number;
+  loa!: number;
 
   /** Max speed in knots */
   @Prop({ min: 0 })
-  maxSpeed: number;
+  maxSpeed!: number;
 
   /** Beam width in feet */
   @Prop({ min: 0 })
-  beam: number;
+  beam!: number;
 
   /** Number of cabins */
   @Prop({ min: 0 })
-  cabin: number;
+  cabin!: number;
 
   /** Draft in feet */
   @Prop({ min: 0 })
-  draft: number;
+  draft!: number;
 
   @Prop({ trim: true })
-  mechanicalEquipment: string;
+  mechanicalEquipment!: string;
 
   @Prop({ trim: true })
-  galleyEquipment: string;
+  galleyEquipment!: string;
 
   @Prop({ trim: true })
-  deckHullEquipment: string;
+  deckHullEquipment!: string;
 
   @Prop({ trim: true })
-  navigationSystem: string;
+  navigationSystem!: string;
 
   @Prop({ trim: true })
-  additionalEquipment: string;
+  additionalEquipment!: string;
 }
 
 export const BoatAdditionalSchema =

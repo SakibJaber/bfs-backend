@@ -390,48 +390,12 @@ export class PostsService {
     };
   }
 
-  // ─── FEED (SIMPLIFIED) ──────────
+  // ─── FILTER HELPER ──────────
 
-  async getFeed(query: SearchPostsDto, user?: AuthUser): Promise<FeedResult> {
-    const postFilter: Record<string, any> = { status: { $ne: 'deleted' } };
-    return this.queryFeedPosts(postFilter, query, user);
-  }
-
-  // ─── MY POSTS ──────────
-
-  async getMyPosts(query: SearchPostsDto, user: AuthUser): Promise<FeedResult> {
-    const postFilter: Record<string, any> = {
-      userId: new Types.ObjectId(user.userId),
-      status: { $ne: 'deleted' },
-    };
-    return this.queryFeedPosts(postFilter, query, user);
-  }
-
-  // ─── SAVED POSTS ──────────
-
-  async getSavedPosts(
+  private async buildPostSearchFilter(
     query: SearchPostsDto,
-    user: AuthUser,
-  ): Promise<FeedResult> {
-    const savedDocs = await this.savedModel
-      .find({ userId: new Types.ObjectId(user.userId) })
-      .select('postId')
-      .lean()
-      .exec();
-
-    const savedPostIds = savedDocs.map((d) => d.postId);
-
-    const postFilter: Record<string, any> = {
-      _id: { $in: savedPostIds },
-      status: { $ne: 'deleted' },
-    };
-
-    return this.queryFeedPosts(postFilter, query, user);
-  }
-
-  // ─── SEARCH + PAGINATION ──────────
-
-  async findAll(query: SearchPostsDto, user?: AuthUser): Promise<FeedResult> {
+    baseFilter: Record<string, any> = {},
+  ): Promise<Record<string, any> | null> {
     const {
       location,
       minPrice,
@@ -449,8 +413,6 @@ export class PostsService {
       engineType,
       minHorsePower,
       maxHorsePower,
-      page = 1,
-      limit = 15,
     } = query;
 
     // ── Build filters for related models ──────────
@@ -537,11 +499,11 @@ export class PostsService {
 
     // If any related filter was applied and resulted in no matches
     if (filteredPostIds && (filteredPostIds as any).length === 0) {
-      return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+      return null;
     }
 
     // ── Build Post filter ──────────
-    const postFilter: Record<string, any> = { status: { $ne: 'deleted' } };
+    const postFilter: Record<string, any> = { ...baseFilter };
 
     if (location) {
       postFilter.location = { $regex: location, $options: 'i' };
@@ -554,9 +516,87 @@ export class PostsService {
     }
 
     if (filteredPostIds !== null) {
-      postFilter._id = { $in: filteredPostIds };
+      // Cast needed: TypeScript loses track of the type through the closure mutation in `intersectIds`
+      const resolvedIds = filteredPostIds as Types.ObjectId[];
+      if (postFilter._id && postFilter._id.$in) {
+        // Handle case where baseFilter already has an _id $in query (e.g. getSavedPosts)
+        const baseIds = Array.isArray(postFilter._id.$in)
+          ? postFilter._id.$in.map((id: any) => id.toString())
+          : [];
+        if (baseIds.length > 0) {
+          const idStrings = new Set(resolvedIds.map((id) => id.toString()));
+          postFilter._id = {
+            $in: baseIds
+              .filter((id: string) => idStrings.has(id))
+              .map((id: string) => new Types.ObjectId(id)),
+          };
+        } else {
+          postFilter._id = { $in: resolvedIds };
+        }
+      } else {
+        postFilter._id = { $in: resolvedIds };
+      }
     }
 
+    return postFilter;
+  }
+
+  // ─── FEED (SIMPLIFIED) ──────────
+
+  async getFeed(query: SearchPostsDto, user?: AuthUser): Promise<FeedResult> {
+    const postFilter = await this.buildPostSearchFilter(query, { status: { $ne: 'deleted' } });
+    if (!postFilter) {
+      return { data: [], meta: { total: 0, page: query.page || 1, limit: query.limit || 15, totalPages: 0 } };
+    }
+    return this.queryFeedPosts(postFilter, query, user);
+  }
+
+  // ─── MY POSTS ──────────
+
+  async getMyPosts(query: SearchPostsDto, user: AuthUser): Promise<FeedResult> {
+    const postFilter = await this.buildPostSearchFilter(query, {
+      userId: new Types.ObjectId(user.userId),
+      status: { $ne: 'deleted' },
+    });
+    if (!postFilter) {
+      return { data: [], meta: { total: 0, page: query.page || 1, limit: query.limit || 15, totalPages: 0 } };
+    }
+    return this.queryFeedPosts(postFilter, query, user);
+  }
+
+  // ─── SAVED POSTS ──────────
+
+  async getSavedPosts(
+    query: SearchPostsDto,
+    user: AuthUser,
+  ): Promise<FeedResult> {
+    const savedDocs = await this.savedModel
+      .find({ userId: new Types.ObjectId(user.userId) })
+      .select('postId')
+      .lean()
+      .exec();
+
+    const savedPostIds = savedDocs.map((d) => d.postId);
+
+    const postFilter = await this.buildPostSearchFilter(query, {
+      _id: { $in: savedPostIds },
+      status: { $ne: 'deleted' },
+    });
+
+    if (!postFilter) {
+      return { data: [], meta: { total: 0, page: query.page || 1, limit: query.limit || 15, totalPages: 0 } };
+    }
+
+    return this.queryFeedPosts(postFilter, query, user);
+  }
+
+  // ─── SEARCH + PAGINATION ──────────
+
+  async findAll(query: SearchPostsDto, user?: AuthUser): Promise<FeedResult> {
+    const postFilter = await this.buildPostSearchFilter(query, { status: { $ne: 'deleted' } });
+    if (!postFilter) {
+      return { data: [], meta: { total: 0, page: query.page || 1, limit: query.limit || 15, totalPages: 0 } };
+    }
     return this.queryFeedPosts(postFilter, query, user);
   }
 
