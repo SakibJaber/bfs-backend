@@ -397,6 +397,7 @@ export class PostsService {
     baseFilter: Record<string, any> = {},
   ): Promise<Record<string, any> | null> {
     const {
+      search,
       location,
       minPrice,
       maxPrice,
@@ -505,9 +506,21 @@ export class PostsService {
     // ── Build Post filter ──────────
     const postFilter: Record<string, any> = { ...baseFilter };
 
+    // Keyword search across title, caption, displayTitle, location
+    if (search && search.trim()) {
+      const regex = { $regex: search.trim(), $options: 'i' };
+      postFilter.$or = [
+        { title: regex },
+        { caption: regex },
+        { displayTitle: regex },
+        { location: regex },
+      ];
+    }
+
     if (location) {
       postFilter.location = { $regex: location, $options: 'i' };
     }
+
 
     if (minPrice !== undefined || maxPrice !== undefined) {
       postFilter.price = {};

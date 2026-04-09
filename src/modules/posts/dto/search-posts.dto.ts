@@ -1,5 +1,4 @@
 import {
-  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -9,6 +8,11 @@ import {
 import { Type } from 'class-transformer';
 
 export class SearchPostsDto {
+  /** Free-text keyword: searched across title, caption, displayTitle, location */
+  @IsOptional()
+  @IsString()
+  search?: string;
+
   @IsOptional()
   @IsString()
   location?: string;
