@@ -11,7 +11,7 @@ export class Chat {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   senderId: Types.ObjectId;
 
-  @Prop({ enum: ['USER', 'DOCTOR'], required: true })
+  @Prop({ enum: ['USER', 'ADMIN', 'SUPER_ADMIN'], required: true })
   senderRole: string;
 
   @Prop({ required: true })

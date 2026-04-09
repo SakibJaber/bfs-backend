@@ -36,17 +36,8 @@ export class Message {
   @Prop({ type: [String], default: [] })
   images: string[];
 
-  @Prop({ type: String, default: null })
-  video: string | null;
-
-  @Prop({ type: String, default: null })
-  videoCover: string | null;
-
   @Prop({ type: Boolean, default: false })
   seen: boolean;
-
-  @Prop({ type: Date, default: null })
-  deliveredAt: Date | null;
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);

@@ -29,10 +29,8 @@ export class ChatService {
     receiver: { id: string; role: string };
     text: string;
     images?: string[];
-    video?: string;
-    videoCover?: string;
   }) {
-    const { sender, receiver, text, images, video, videoCover } = payload;
+    const { sender, receiver, text, images } = payload;
 
     const senderId = new Types.ObjectId(sender.id);
     const receiverId = new Types.ObjectId(receiver.id);
@@ -52,15 +50,13 @@ export class ChatService {
       });
     }
 
-    // Save message (plain text — no encryption)
+    // Save message
     const newMessage = (await this.messageModel.create({
       conversationId: conversation._id,
       sender: { id: senderId, role: sender.role },
       receiver: { id: receiverId, role: receiver.role },
       text: text || '',
       images: images || [],
-      video: video || null,
-      videoCover: videoCover || null,
       seen: false,
     })) as MessageDocument;
 
@@ -243,15 +239,6 @@ export class ChatService {
         totalPages: Math.ceil(total / limit),
       },
     };
-  }
-
-  async findAll(
-    userId: string,
-    role: string,
-    page: number = 1,
-    limit: number = 20,
-  ) {
-    return this.getConversations(userId, role, page, limit);
   }
 
   @OnEvent('user.deleted')
