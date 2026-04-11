@@ -200,7 +200,6 @@ export class UsersController {
    * Admin: get any user by ID.
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
   @Get(':id')
   async findOne(@Param('id') id: string) {
     try {
