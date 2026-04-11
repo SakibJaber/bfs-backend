@@ -199,7 +199,7 @@ export class UsersController {
    * GET /users/:id
    * Admin: get any user by ID.
    */
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   async findOne(@Param('id') id: string) {
     try {
